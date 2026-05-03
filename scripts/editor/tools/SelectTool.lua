@@ -13,14 +13,14 @@ function SelectTool:new()
     return obj
 end
 
-function SelectTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function SelectTool:OnPress(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     self.selectionStart = { col = col, row = row }
     self.selectionEnd = { col = col, row = row }
     self.selectedTiles = {}
     return true
 end
 
-function SelectTool:OnDrag(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function SelectTool:OnDrag(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     if self.selectionStart then
         self.selectionEnd = { col = col, row = row }
         self:UpdateSelection()
@@ -28,7 +28,7 @@ function SelectTool:OnDrag(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
     return true
 end
 
-function SelectTool:OnRelease(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function SelectTool:OnRelease(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     self.selectionEnd = { col = col, row = row }
     self:UpdateSelection()
     return true

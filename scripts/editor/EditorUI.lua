@@ -4,6 +4,7 @@ local EditorUI = {
     statusbarHeight = 32,
     tilePalette = nil,
     vg = nil,
+    fontId = -1,
     imageEntries = nil,
     selectedSourceId = nil,
     paletteExpanded = false,
@@ -43,8 +44,9 @@ function EditorUI:new()
     return obj
 end
 
-function EditorUI:Init(vg, imageEntries)
+function EditorUI:Init(vg, imageEntries, fontId)
     self.vg = vg
+    self.fontId = fontId or -1
     self.imageEntries = imageEntries or {}
     self.tilePalette = require("scripts/editor/TilePalette")
     self:ReloadPalette()
@@ -98,6 +100,52 @@ function EditorUI:GetPaletteBounds()
         y = self.toolbarHeight,
         w = self.paletteWidth,
         h = self.logicalH - self.toolbarHeight - self.statusbarHeight,
+    }
+end
+
+function EditorUI:ApplyFont(vg)
+    nvgFontFaceId(vg, self.fontId or -1)
+end
+
+function EditorUI:GetToolbarLayout()
+    local buttonW = 54
+    local buttonH = self.toolbarHeight - 12
+    local buttonGap = 6
+    local toolX = 118
+    local toolY = 6
+    local tools = {}
+
+    for _, toolName in ipairs(TOOL_ORDER) do
+        tools[toolName] = {
+            x = toolX,
+            y = toolY,
+            w = buttonW,
+            h = buttonH,
+        }
+        toolX = toolX + buttonW + buttonGap
+    end
+
+    local actionW = 48
+    local actionGap = 8
+    local actionY = 8
+    local loadButton = {
+        x = self.logicalW - 12 - actionW,
+        y = actionY,
+        w = actionW,
+        h = self.toolbarHeight - 16,
+    }
+    local saveButton = {
+        x = loadButton.x - actionGap - actionW,
+        y = actionY,
+        w = actionW,
+        h = self.toolbarHeight - 16,
+    }
+
+    return {
+        tools = tools,
+        saveButton = saveButton,
+        loadButton = loadButton,
+        hintRight = saveButton.x - 12,
     }
 end
 
@@ -191,17 +239,15 @@ function EditorUI:GetLayerPanelLayout(layerManager)
     local padding = 8
     local titleH = 24
     local itemH = 32
-    local addButtonH = 28
 
     local layout = {
         x = x,
         y = y,
         w = w,
-        h = padding + titleH + layerManager:GetLayerCount() * itemH + addButtonH + padding,
+        h = padding + titleH + layerManager:GetLayerCount() * itemH + padding,
         padding = padding,
         titleH = titleH,
         itemH = itemH,
-        addButtonH = addButtonH,
         items = {},
     }
 
@@ -215,13 +261,6 @@ function EditorUI:GetLayerPanelLayout(layerManager)
             textY = itemY + 12,
         }
     end
-
-    layout.addButton = {
-        x = x + padding,
-        y = y + padding + titleH + layerManager:GetLayerCount() * itemH + 4,
-        w = w - padding * 2,
-        h = addButtonH - 4,
-    }
 
     return layout
 end
@@ -250,11 +289,12 @@ function EditorUI:Render(vg, logicalW, logicalH, state, camera, layerManager)
     self:DrawToolbar(vg, state)
     self:DrawPalette(vg, state)
     self:DrawLayerPanel(vg, layerManager)
-    self:DrawStatusBar(vg, state, camera)
+    self:DrawStatusBar(vg, state, camera, layerManager)
 end
 
 function EditorUI:DrawToolbar(vg, state)
     local h = self.toolbarHeight
+    local layout = self:GetToolbarLayout()
 
     nvgBeginPath(vg)
     nvgRect(vg, 0, 0, self.logicalW, h)
@@ -266,37 +306,58 @@ function EditorUI:DrawToolbar(vg, state)
     nvgFillColor(vg, nvgRGBA(80, 85, 100, 200))
     nvgFill(vg)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 15)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 240))
     nvgText(vg, 12, h / 2, "地图编辑器", nil)
 
-    local toolX = 110
     for _, toolName in ipairs(TOOL_ORDER) do
+        local rect = layout.tools[toolName]
         local toolLabel = TOOL_ICONS[toolName]
         local isActive = (state.currentTool == toolName)
-        local tw = 50
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, 5)
+        nvgFillColor(vg, isActive and nvgRGBA(60, 130, 220, 210) or nvgRGBA(52, 56, 66, 220))
+        nvgFill(vg)
 
-        if isActive then
-            nvgBeginPath(vg)
-            nvgRoundedRect(vg, toolX - 4, 6, tw, h - 12, 4)
-            nvgFillColor(vg, nvgRGBA(60, 130, 220, 200))
-            nvgFill(vg)
-        end
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, 5)
+        nvgStrokeColor(vg, isActive and nvgRGBA(110, 175, 255, 220) or nvgRGBA(80, 85, 100, 170))
+        nvgStrokeWidth(vg, 1)
+        nvgStroke(vg)
 
         nvgFontSize(vg, 12)
         nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(vg, isActive and nvgRGBA(255, 255, 255, 255) or nvgRGBA(200, 200, 200, 200))
-        nvgText(vg, toolX + tw / 2, h / 2, toolLabel, nil)
-
-        toolX = toolX + tw + 6
+        nvgFillColor(vg, isActive and nvgRGBA(255, 255, 255, 255) or nvgRGBA(210, 210, 210, 220))
+        nvgText(vg, rect.x + rect.w / 2, rect.y + rect.h / 2, toolLabel, nil)
     end
+
+    local function DrawActionButton(rect, label)
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, 5)
+        nvgFillColor(vg, nvgRGBA(52, 56, 66, 220))
+        nvgFill(vg)
+
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, 5)
+        nvgStrokeColor(vg, nvgRGBA(80, 85, 100, 170))
+        nvgStrokeWidth(vg, 1)
+        nvgStroke(vg)
+
+        nvgFontSize(vg, 11)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(vg, nvgRGBA(235, 235, 235, 230))
+        nvgText(vg, rect.x + rect.w / 2, rect.y + rect.h / 2, label, nil)
+    end
+
+    DrawActionButton(layout.saveButton, "保存")
+    DrawActionButton(layout.loadButton, "加载")
 
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(180, 180, 180, 180))
-    nvgText(vg, self.logicalW - 10, h / 2, "1-5切换工具 | F2保存 F3加载 | Ctrl+Z撤销", nil)
+    nvgText(vg, layout.hintRight, h / 2, "1-5切换工具 | F2保存 F3加载 | Ctrl+Z撤销", nil)
 end
 
 function EditorUI:DrawPalette(vg, state)
@@ -319,7 +380,7 @@ function EditorUI:DrawPalette(vg, state)
     nvgFillColor(vg, nvgRGBA(60, 65, 75, 200))
     nvgFill(vg)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 12)
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
@@ -338,7 +399,7 @@ function EditorUI:DrawSourceList(vg, listRect, sources)
     nvgFillColor(vg, nvgRGBA(42, 45, 52, 225))
     nvgFill(vg)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(210, 210, 210, 220))
@@ -412,7 +473,7 @@ function EditorUI:DrawMaterialDetailCard(vg, state, layout, source)
 
     self:DrawCardBackground(vg, card)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 210))
@@ -471,7 +532,7 @@ function EditorUI:DrawAtlasConfigPopup(vg, layout, source)
     nvgStrokeWidth(vg, 1)
     nvgStroke(vg)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 10)
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
@@ -502,7 +563,7 @@ function EditorUI:DrawAtlasConfigPopup(vg, layout, source)
 end
 
 function EditorUI:DrawAtlasPaletteGrid(vg, state, gridRect, items)
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
@@ -568,7 +629,7 @@ function EditorUI:DrawLayerPanel(vg, layerManager)
     nvgStrokeWidth(vg, 1)
     nvgStroke(vg)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 180))
@@ -603,19 +664,9 @@ function EditorUI:DrawLayerPanel(vg, layerManager)
         nvgFillColor(vg, layer.visible and nvgRGBA(255, 255, 255, 220) or nvgRGBA(150, 150, 150, 150))
         nvgText(vg, item.textX, item.textY, layer.name, nil)
     end
-
-    nvgBeginPath(vg)
-    nvgRoundedRect(vg, layout.addButton.x, layout.addButton.y, layout.addButton.w, layout.addButton.h, 4)
-    nvgFillColor(vg, nvgRGBA(60, 130, 220, 180))
-    nvgFill(vg)
-
-    nvgFontSize(vg, 11)
-    nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-    nvgFillColor(vg, nvgRGBA(255, 255, 255, 230))
-    nvgText(vg, layout.addButton.x + layout.addButton.w / 2, layout.addButton.y + layout.addButton.h / 2, "+ 添加图层", nil)
 end
 
-function EditorUI:DrawStatusBar(vg, state, camera)
+function EditorUI:DrawStatusBar(vg, state, camera, layerManager)
     local y = self.logicalH - self.statusbarHeight
 
     nvgBeginPath(vg)
@@ -634,7 +685,11 @@ function EditorUI:DrawStatusBar(vg, state, camera)
         if tile then tileName = tile.name end
     end
 
-    local info = string.format("坐标: %d,%d | 世界: %.0f,%.0f | 缩放: %.1fx | 笔刷: %dx%d | 网格: %s | 当前瓦片: %s",
+    local currentLayer = layerManager and layerManager:GetCurrentLayer() or nil
+    local layerName = currentLayer and currentLayer.name or "无"
+
+    local info = string.format("图层: %s | 坐标: %d,%d | 世界: %.0f,%.0f | 缩放: %.1fx | 笔刷: %dx%d | 网格: %s | 当前瓦片: %s",
+        layerName,
         state.hoverCol, state.hoverRow,
         state.hoverWorldX, state.hoverWorldY,
         camera.zoom,
@@ -642,11 +697,38 @@ function EditorUI:DrawStatusBar(vg, state, camera)
         state.showGrid and "开" or "关",
         tileName)
 
-    nvgFontFaceId(vg, -1)
+    self:ApplyFont(vg)
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
     nvgText(vg, 10, y + self.statusbarHeight / 2, info, nil)
+end
+
+function EditorUI:HandleToolbarClick(x, y, state, editorCore)
+    local layout = self:GetToolbarLayout()
+    local toolbarRect = { x = 0, y = 0, w = self.logicalW, h = self.toolbarHeight }
+    if not self:IsPointInRect(x, y, toolbarRect) then
+        return false
+    end
+
+    for _, toolName in ipairs(TOOL_ORDER) do
+        if self:IsPointInRect(x, y, layout.tools[toolName]) then
+            editorCore:SetTool(toolName)
+            return true
+        end
+    end
+
+    if self:IsPointInRect(x, y, layout.saveButton) then
+        editorCore:SaveMap()
+        return true
+    end
+
+    if self:IsPointInRect(x, y, layout.loadButton) then
+        editorCore:LoadMap()
+        return true
+    end
+
+    return true
 end
 
 function EditorUI:HandlePaletteClick(x, y, state)
@@ -771,11 +853,6 @@ function EditorUI:HandleLayerPanelClick(x, y, layerManager)
     local layout = self:GetLayerPanelLayout(layerManager)
     if not self:IsPointInRect(x, y, layout) then
         return false
-    end
-
-    if self:IsPointInRect(x, y, layout.addButton) then
-        layerManager:AddLayer("新图层")
-        return true
     end
 
     for i = 1, layerManager:GetLayerCount() do

@@ -147,7 +147,7 @@ function Start()
     camY = player.worldY
 
     -- 初始化编辑器
-    EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
+    EditorCore:Init(vg, logicalW, logicalH, dpr, fontNormal, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
 
     -- 鼠标模式
     SampleInitMouseMode(MM_FREE)

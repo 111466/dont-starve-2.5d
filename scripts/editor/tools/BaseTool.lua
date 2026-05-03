@@ -13,8 +13,8 @@ end
 
 function BaseTool:OnActivate() end
 function BaseTool:OnDeactivate() end
-function BaseTool:OnPress(col, row, tileMap, GRID_COLS, GRID_ROWS) return false end
-function BaseTool:OnDrag(col, row, tileMap, GRID_COLS, GRID_ROWS) return false end
-function BaseTool:OnRelease(col, row, tileMap, GRID_COLS, GRID_ROWS) return false end
+function BaseTool:OnPress(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS) return false end
+function BaseTool:OnDrag(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS) return false end
+function BaseTool:OnRelease(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS) return false end
 
 return BaseTool

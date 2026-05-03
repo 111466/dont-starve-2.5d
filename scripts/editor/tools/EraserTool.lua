@@ -9,17 +9,17 @@ function EraserTool:new()
     return obj
 end
 
-function EraserTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
-    self:Erase(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function EraserTool:OnPress(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
+    self:Erase(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     return true
 end
 
-function EraserTool:OnDrag(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
-    self:Erase(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function EraserTool:OnDrag(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
+    self:Erase(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     return true
 end
 
-function EraserTool:Erase(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function EraserTool:Erase(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     local size = state.brushSize
     local half = math.floor(size / 2)
 

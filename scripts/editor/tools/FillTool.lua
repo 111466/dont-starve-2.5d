@@ -9,11 +9,11 @@ function FillTool:new()
     return obj
 end
 
-function FillTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function FillTool:OnPress(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     local targetId = tileMap[row] and tileMap[row][col]
     if targetId == nil then return false end
 
-    local fillId = state.currentTileId
+    local fillId = (layerId == "collision") and 1 or state.currentTileId
     if targetId == fillId then return false end
 
     self:FloodFill(col, row, targetId, fillId, tileMap, GRID_COLS, GRID_ROWS)

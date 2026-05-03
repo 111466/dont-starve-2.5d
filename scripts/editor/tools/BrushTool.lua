@@ -9,18 +9,18 @@ function BrushTool:new()
     return obj
 end
 
-function BrushTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
-    self:Paint(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function BrushTool:OnPress(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
+    self:Paint(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     return true
 end
 
-function BrushTool:OnDrag(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
-    self:Paint(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
+function BrushTool:OnDrag(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
+    self:Paint(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
     return true
 end
 
-function BrushTool:Paint(col, row, state, tileMap, GRID_COLS, GRID_ROWS)
-    local tileId = state.currentTileId
+function BrushTool:Paint(col, row, state, layerId, tileMap, GRID_COLS, GRID_ROWS)
+    local tileId = (layerId == "collision") and 1 or state.currentTileId
     local size = state.brushSize
     local half = math.floor(size / 2)
 

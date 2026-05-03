@@ -1,24 +1,26 @@
 local LayerManager = {
     layers = {
         { name = "地面", visible = true, editable = true, id = "ground" },
-        { name = "装饰", visible = true, editable = false, id = "decoration" },
-        { name = "碰撞", visible = false, editable = false, id = "collision" },
+        { name = "装饰", visible = true, editable = true, id = "decoration" },
+        { name = "碰撞", visible = false, editable = true, id = "collision" },
     },
     currentLayer = 1,
 }
 
-function LayerManager:new()
-    local obj = {}
-    for k, v in pairs(self) do
-        if type(v) == "table" then
-            obj[k] = {}
-            for kk, vv in pairs(v) do
-                obj[k][kk] = vv
-            end
-        else
-            obj[k] = v
-        end
+local function CloneValue(value)
+    if type(value) ~= "table" then
+        return value
     end
+
+    local result = {}
+    for k, v in pairs(value) do
+        result[k] = CloneValue(v)
+    end
+    return result
+end
+
+function LayerManager:new()
+    local obj = CloneValue(self)
     setmetatable(obj, self)
     self.__index = self
     return obj
@@ -32,6 +34,24 @@ function LayerManager:SetCurrentLayer(index)
     if index >= 1 and index <= #self.layers then
         self.currentLayer = index
     end
+end
+
+function LayerManager:GetCurrentLayerId()
+    local layer = self:GetCurrentLayer()
+    return layer and layer.id or nil
+end
+
+function LayerManager:GetLayer(index)
+    return self.layers[index]
+end
+
+function LayerManager:GetLayerById(layerId)
+    for _, layer in ipairs(self.layers) do
+        if layer.id == layerId then
+            return layer
+        end
+    end
+    return nil
 end
 
 function LayerManager:ToggleVisibility(index)
@@ -50,8 +70,23 @@ function LayerManager:IsLayerVisible(index)
     return self.layers[index] and self.layers[index].visible
 end
 
+function LayerManager:IsLayerVisibleById(layerId)
+    local layer = self:GetLayerById(layerId)
+    return layer and layer.visible or false
+end
+
 function LayerManager:IsLayerEditable(index)
     return self.layers[index] and self.layers[index].editable
+end
+
+function LayerManager:IsLayerEditableById(layerId)
+    local layer = self:GetLayerById(layerId)
+    return layer and layer.editable or false
+end
+
+function LayerManager:CanEditCurrentLayer()
+    local layer = self:GetCurrentLayer()
+    return layer and layer.editable or false
 end
 
 function LayerManager:GetLayerCount()

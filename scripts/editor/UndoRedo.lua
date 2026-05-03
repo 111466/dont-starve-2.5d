@@ -4,6 +4,55 @@ local UndoRedo = {
     maxHistory = 50,
 }
 
+local function CloneGrid(grid, cols, rows)
+    local snapshot = {}
+    for row = 1, rows do
+        snapshot[row] = {}
+        for col = 1, cols do
+            snapshot[row][col] = grid[row][col]
+        end
+    end
+    return snapshot
+end
+
+local function CloneDecorations(decorations)
+    local snapshot = {}
+    for i, dec in ipairs(decorations) do
+        snapshot[i] = {
+            x = dec.x,
+            y = dec.y,
+            type = dec.type,
+            scale = dec.scale,
+            swayPhase = dec.swayPhase,
+        }
+    end
+    return snapshot
+end
+
+local function RestoreGrid(target, snapshot, cols, rows)
+    for row = 1, rows do
+        for col = 1, cols do
+            target[row][col] = snapshot[row][col]
+        end
+    end
+end
+
+local function RestoreDecorations(target, snapshot)
+    while #target > 0 do
+        table.remove(target)
+    end
+
+    for i, dec in ipairs(snapshot) do
+        target[i] = {
+            x = dec.x,
+            y = dec.y,
+            type = dec.type,
+            scale = dec.scale,
+            swayPhase = dec.swayPhase,
+        }
+    end
+end
+
 function UndoRedo:new()
     local obj = {}
     for k, v in pairs(self) do
@@ -21,14 +70,12 @@ function UndoRedo:new()
     return obj
 end
 
-function UndoRedo:Push(tileMap, GRID_COLS, GRID_ROWS)
-    local snapshot = {}
-    for row = 1, GRID_ROWS do
-        snapshot[row] = {}
-        for col = 1, GRID_COLS do
-            snapshot[row][col] = tileMap[row][col]
-        end
-    end
+function UndoRedo:Push(tileMap, collisionMap, decorations, GRID_COLS, GRID_ROWS)
+    local snapshot = {
+        ground = CloneGrid(tileMap, GRID_COLS, GRID_ROWS),
+        collision = CloneGrid(collisionMap, GRID_COLS, GRID_ROWS),
+        decorations = CloneDecorations(decorations),
+    }
 
     while #self.history > self.currentIndex do
         table.remove(self.history)
@@ -43,7 +90,7 @@ function UndoRedo:Push(tileMap, GRID_COLS, GRID_ROWS)
     end
 end
 
-function UndoRedo:Undo(tileMap, GRID_COLS, GRID_ROWS)
+function UndoRedo:Undo(tileMap, collisionMap, decorations, GRID_COLS, GRID_ROWS)
     if self.currentIndex <= 1 then
         return false
     end
@@ -51,16 +98,14 @@ function UndoRedo:Undo(tileMap, GRID_COLS, GRID_ROWS)
     self.currentIndex = self.currentIndex - 1
     local snapshot = self.history[self.currentIndex]
 
-    for row = 1, GRID_ROWS do
-        for col = 1, GRID_COLS do
-            tileMap[row][col] = snapshot[row][col]
-        end
-    end
+    RestoreGrid(tileMap, snapshot.ground, GRID_COLS, GRID_ROWS)
+    RestoreGrid(collisionMap, snapshot.collision, GRID_COLS, GRID_ROWS)
+    RestoreDecorations(decorations, snapshot.decorations)
 
     return true
 end
 
-function UndoRedo:Redo(tileMap, GRID_COLS, GRID_ROWS)
+function UndoRedo:Redo(tileMap, collisionMap, decorations, GRID_COLS, GRID_ROWS)
     if self.currentIndex >= #self.history then
         return false
     end
@@ -68,11 +113,9 @@ function UndoRedo:Redo(tileMap, GRID_COLS, GRID_ROWS)
     self.currentIndex = self.currentIndex + 1
     local snapshot = self.history[self.currentIndex]
 
-    for row = 1, GRID_ROWS do
-        for col = 1, GRID_COLS do
-            tileMap[row][col] = snapshot[row][col]
-        end
-    end
+    RestoreGrid(tileMap, snapshot.ground, GRID_COLS, GRID_ROWS)
+    RestoreGrid(collisionMap, snapshot.collision, GRID_COLS, GRID_ROWS)
+    RestoreDecorations(decorations, snapshot.decorations)
 
     return true
 end

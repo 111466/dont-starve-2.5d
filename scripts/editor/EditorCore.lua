@@ -7,13 +7,25 @@ local EditorCore = {
     serializer = nil,
     layerManager = nil,
     tools = {},
+    collisionMap = nil,
 }
 
 local function IsMiddleMouseButton(button)
     return button == 3 or button == 4
 end
 
-function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
+local function CreateGrid(cols, rows, defaultValue)
+    local grid = {}
+    for row = 1, rows do
+        grid[row] = {}
+        for col = 1, cols do
+            grid[row][col] = defaultValue or 0
+        end
+    end
+    return grid
+end
+
+function EditorCore:Init(vg, logicalW, logicalH, dpr, fontId, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
     self.vg = vg
     self.logicalW = logicalW
     self.logicalH = logicalH
@@ -25,11 +37,12 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_R
     self.ISO_Y_SCALE = ISO_Y_SCALE
     self.tileSprites = tileSprites
     self.tileImageEntries = tileImageEntries or {}
+    self.collisionMap = CreateGrid(GRID_COLS, GRID_ROWS, 0)
 
     self.camera = require("scripts/editor/EditorCamera"):new()
     self.state = require("scripts/editor/EditorState"):new()
     self.ui = require("scripts/editor/EditorUI"):new()
-    self.ui:Init(vg, self.tileImageEntries)
+    self.ui:Init(vg, self.tileImageEntries, fontId)
     self.undoRedo = require("scripts/editor/UndoRedo"):new()
     self.serializer = require("scripts/editor/MapSerializer")
     self.layerManager = require("scripts/editor/LayerManager"):new()
@@ -40,9 +53,45 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_R
     self.tools["entity"] = require("scripts/editor/tools/EntityTool"):new()
     self.tools["select"] = require("scripts/editor/tools/SelectTool"):new()
 
-    self.undoRedo:Push(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+    self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
 
     print("[Editor] Core initialized")
+end
+
+function EditorCore:SetTool(toolName)
+    if self.tools[toolName] then
+        self.state.currentTool = toolName
+    end
+end
+
+function EditorCore:GetCurrentLayerId()
+    return self.layerManager and self.layerManager:GetCurrentLayerId() or "ground"
+end
+
+function EditorCore:GetActiveGridLayer()
+    local layerId = self:GetCurrentLayerId()
+    if layerId == "ground" then
+        return self.tileMap
+    elseif layerId == "collision" then
+        return self.collisionMap
+    end
+    return nil
+end
+
+function EditorCore:CanUseCurrentToolOnLayer(layerId)
+    if layerId == "decoration" then
+        return self.state.currentTool == "entity"
+    end
+    if layerId == "ground" or layerId == "collision" then
+        return self.state.currentTool ~= "entity"
+    end
+    return false
+end
+
+function EditorCore:HasVisibleContentLayer()
+    return self.layerManager:IsLayerVisibleById("ground")
+        or self.layerManager:IsLayerVisibleById("decoration")
+        or self.layerManager:IsLayerVisibleById("collision")
 end
 
 function EditorCore:Toggle()
@@ -74,20 +123,33 @@ function EditorCore:Render(vg, logicalW, logicalH)
     -- 绘制编辑器背景
     self:DrawBackground()
 
-    -- 绘制地图瓦片
-    self:DrawMap()
+    if self.layerManager:IsLayerVisibleById("ground") then
+        self:DrawMap()
+    end
+
+    if self.layerManager:IsLayerVisibleById("decoration") then
+        self:DrawDecorations()
+    end
+
+    if self.layerManager:IsLayerVisibleById("collision") then
+        self:DrawCollisionLayer()
+    end
 
     -- 绘制UI (工具栏、调色板等)
     self.ui:Render(vg, logicalW, logicalH, self.state, self.camera, self.layerManager)
 
     -- 绘制网格和高亮
-    if self.state.showGrid then
+    if self.state.showGrid and self:HasVisibleContentLayer() then
         self:DrawGrid()
     end
-    self:DrawHoverHighlight()
-    self:DrawBrushPreview()
-    self:DrawEntitySelection()
-    self:DrawSelectionRect()
+    if self:HasVisibleContentLayer() then
+        self:DrawHoverHighlight()
+        self:DrawBrushPreview()
+        if self.layerManager:IsLayerVisibleById("decoration") then
+            self:DrawEntitySelection()
+        end
+        self:DrawSelectionRect()
+    end
 end
 
 function EditorCore:DrawBackground()
@@ -125,6 +187,55 @@ function EditorCore:DrawMap()
             local drawX = sx - w / 2
             local drawY = sy - h / 2
             self:DrawTileByPalette(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
+        end
+    end
+end
+
+function EditorCore:DrawDecorations()
+    local drawables = {}
+    for _, dec in ipairs(decorations) do
+        drawables[#drawables + 1] = dec
+    end
+
+    table.sort(drawables, function(a, b)
+        return a.y < b.y
+    end)
+
+    for _, dec in ipairs(drawables) do
+        DrawDecoration(dec)
+    end
+end
+
+function EditorCore:DrawCollisionLayer()
+    local vg = self.vg
+    local cam = self.camera
+    local margin = self.TILE_SIZE * 2
+    local startCol = math.max(1, math.floor((cam.position.x - self.logicalW / 2 / cam.zoom - margin) / self.TILE_SIZE) + 1)
+    local endCol = math.min(self.GRID_COLS, math.ceil((cam.position.x + self.logicalW / 2 / cam.zoom + margin) / self.TILE_SIZE) + 1)
+    local startRow = math.max(1, math.floor((cam.position.y - self.logicalH / 2 / cam.zoom / self.ISO_Y_SCALE - margin) / self.TILE_SIZE) + 1)
+    local endRow = math.min(self.GRID_ROWS, math.ceil((cam.position.y + self.logicalH / 2 / cam.zoom / self.ISO_Y_SCALE + margin) / self.TILE_SIZE) + 1)
+
+    for row = startRow, endRow do
+        for col = startCol, endCol do
+            if self.collisionMap[row][col] ~= 0 then
+                local wx = (col - 1) * self.TILE_SIZE + self.TILE_SIZE / 2
+                local wy = (row - 1) * self.TILE_SIZE + self.TILE_SIZE / 2
+                local sx, sy = cam:WorldToScreen(wx, wy, self.logicalW, self.logicalH, self.ISO_Y_SCALE)
+                local hw = self.TILE_SIZE / 2 * cam.zoom
+                local hh = self.TILE_SIZE * self.ISO_Y_SCALE / 2 * cam.zoom
+
+                nvgBeginPath(vg)
+                nvgMoveTo(vg, sx, sy - hh)
+                nvgLineTo(vg, sx + hw, sy)
+                nvgLineTo(vg, sx, sy + hh)
+                nvgLineTo(vg, sx - hw, sy)
+                nvgClosePath(vg)
+                nvgFillColor(vg, nvgRGBA(220, 70, 70, 90))
+                nvgFill(vg)
+                nvgStrokeColor(vg, nvgRGBA(255, 90, 90, 180))
+                nvgStrokeWidth(vg, 1)
+                nvgStroke(vg)
+            end
         end
     end
 end
@@ -234,6 +345,11 @@ function EditorCore:DrawHoverHighlight()
     local vg = self.vg
     local cam = self.camera
     local st = self.state
+    local layerId = self:GetCurrentLayerId()
+
+    if not self.layerManager:IsLayerVisibleById(layerId) then
+        return
+    end
 
     if st.hoverCol < 1 or st.hoverCol > self.GRID_COLS or st.hoverRow < 1 or st.hoverRow > self.GRID_ROWS then
         return
@@ -261,6 +377,14 @@ function EditorCore:DrawBrushPreview()
     local vg = self.vg
     local cam = self.camera
     local st = self.state
+    local layerId = self:GetCurrentLayerId()
+
+    if not self.layerManager:IsLayerVisibleById(layerId) then
+        return
+    end
+    if st.currentTool == "entity" or st.currentTool == "select" then
+        return
+    end
 
     if st.hoverCol < 1 or st.hoverCol > self.GRID_COLS or st.hoverRow < 1 or st.hoverRow > self.GRID_ROWS then
         return
@@ -288,7 +412,9 @@ function EditorCore:DrawBrushPreview()
                 nvgLineTo(vg, sx - hw, sy)
                 nvgClosePath(vg)
 
-                if st.currentTool == "eraser" then
+                if layerId == "collision" then
+                    nvgFillColor(vg, nvgRGBA(255, 80, 80, 70))
+                elseif st.currentTool == "eraser" then
                     nvgFillColor(vg, nvgRGBA(255, 50, 50, 60))
                 else
                     nvgFillColor(vg, nvgRGBA(255, 255, 0, 60))
@@ -300,6 +426,7 @@ function EditorCore:DrawBrushPreview()
 end
 
 function EditorCore:DrawEntitySelection()
+    if not self.layerManager:IsLayerVisibleById("decoration") then return end
     local tool = self.tools["entity"]
     if not tool or not tool.selectedEntityIndex then return end
 
@@ -317,6 +444,9 @@ function EditorCore:DrawEntitySelection()
 end
 
 function EditorCore:DrawSelectionRect()
+    local layerId = self:GetCurrentLayerId()
+    if layerId == "decoration" then return end
+    if not self.layerManager:IsLayerVisibleById(layerId) then return end
     local tool = self.tools["select"]
     if not tool or not tool.selectionStart or not tool.selectionEnd then return end
 
@@ -355,6 +485,10 @@ end
 function EditorCore:HandleMousePress(x, y, button)
     if not self.enabled then return false end
 
+    if self.ui:HandleToolbarClick(x, y, self.state, self) then
+        return true
+    end
+
     if IsMiddleMouseButton(button) then
         self.camera:StartPan(x, y)
         return true
@@ -371,18 +505,32 @@ function EditorCore:HandleMousePress(x, y, button)
         return true
     end
 
+    local layerId = self:GetCurrentLayerId()
+    if not self.layerManager:CanEditCurrentLayer() then
+        return false
+    end
+    if not self.layerManager:IsLayerVisibleById(layerId) then
+        return false
+    end
+    if not self:CanUseCurrentToolOnLayer(layerId) then
+        return false
+    end
+
     local tool = self.tools[self.state.currentTool]
     if tool then
-        if self.state.currentTool == "entity" then
+        if layerId == "decoration" and self.state.currentTool == "entity" then
             local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH, x, y)
             if result then
-                self.undoRedo:Push(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+                self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
             end
             return result
-        else
-            local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+        end
+
+        local activeGrid = self:GetActiveGridLayer()
+        if activeGrid then
+            local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, layerId, activeGrid, self.GRID_COLS, self.GRID_ROWS)
             if result then
-                self.undoRedo:Push(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+                self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
             end
             return result
         end
@@ -398,12 +546,26 @@ function EditorCore:HandleMouseDrag(x, y, button)
         return true
     end
 
+    local layerId = self:GetCurrentLayerId()
+    if not self.layerManager:CanEditCurrentLayer() then
+        return false
+    end
+    if not self.layerManager:IsLayerVisibleById(layerId) then
+        return false
+    end
+    if not self:CanUseCurrentToolOnLayer(layerId) then
+        return false
+    end
+
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnDrag then
-        if self.state.currentTool == "entity" then
+        if layerId == "decoration" and self.state.currentTool == "entity" then
             return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH, x, y)
-        else
-            return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+        end
+
+        local activeGrid = self:GetActiveGridLayer()
+        if activeGrid then
+            return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, layerId, activeGrid, self.GRID_COLS, self.GRID_ROWS)
         end
     end
 
@@ -420,10 +582,16 @@ function EditorCore:HandleMouseRelease(x, y, button)
 
     if self.camera.isPanning then return true end
 
+    local layerId = self:GetCurrentLayerId()
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnRelease then
-        if self.state.currentTool == "entity" then
+        if layerId == "decoration" and self.state.currentTool == "entity" then
             return tool:OnRelease(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations)
+        end
+
+        local activeGrid = self:GetActiveGridLayer()
+        if activeGrid then
+            return tool:OnRelease(self.state.hoverCol, self.state.hoverRow, self.state, layerId, activeGrid, self.GRID_COLS, self.GRID_ROWS)
         end
     end
     return false
@@ -433,63 +601,77 @@ function EditorCore:HandleKeyPress(key)
     if not self.enabled then return false end
 
     if key == KEY_Z and input:GetKeyDown(KEY_CTRL) then
-        self.undoRedo:Undo(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+        self.undoRedo:Undo(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
         return true
     elseif key == KEY_Y and input:GetKeyDown(KEY_CTRL) then
-        self.undoRedo:Redo(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+        self.undoRedo:Redo(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
         return true
     elseif key == KEY_F2 then
-        self.serializer:Save(self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, "map_save.json")
+        self:SaveMap()
         return true
     elseif key == KEY_F3 then
-        local success, newDecorations = self.serializer:Load(self.tileMap, decorations, "map_save.json")
-        if success and newDecorations then
-            decorations = newDecorations
-        end
+        self:LoadMap()
         return true
     elseif key == KEY_DELETE then
         local tool = self.tools["entity"]
-        if tool and self.state.currentTool == "entity" then
-            tool:DeleteSelected(decorations)
+        if tool and self.state.currentTool == "entity" and self:GetCurrentLayerId() == "decoration" then
+            if tool:DeleteSelected(decorations) then
+                self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+            end
         end
         return true
     elseif key == KEY_1 then
-        self.state.currentTool = "brush"
+        self:SetTool("brush")
         return true
     elseif key == KEY_2 then
-        self.state.currentTool = "eraser"
+        self:SetTool("eraser")
         return true
     elseif key == KEY_3 then
-        self.state.currentTool = "fill"
+        self:SetTool("fill")
         return true
     elseif key == KEY_4 then
-        self.state.currentTool = "entity"
+        self:SetTool("entity")
         return true
     elseif key == KEY_5 then
-        self.state.currentTool = "select"
+        self:SetTool("select")
         return true
     elseif key == KEY_TAB then
         local tool = self.tools["entity"]
-        if tool and self.state.currentTool == "entity" then
+        if tool and self.state.currentTool == "entity" and self:GetCurrentLayerId() == "decoration" then
             tool:CycleEntityType()
         end
         return true
     elseif key == KEY_C and input:GetKeyDown(KEY_CTRL) then
         local tool = self.tools["select"]
-        if tool and self.state.currentTool == "select" then
-            tool:Copy(self.tileMap)
+        local activeGrid = self:GetActiveGridLayer()
+        if tool and self.state.currentTool == "select" and activeGrid and self.layerManager:IsLayerVisibleById(self:GetCurrentLayerId()) then
+            tool:Copy(activeGrid)
         end
         return true
     elseif key == KEY_V and input:GetKeyDown(KEY_CTRL) then
         local tool = self.tools["select"]
-        if tool and self.state.currentTool == "select" then
-            tool:Paste(self.tileMap, self.GRID_COLS, self.GRID_ROWS, self.state.hoverCol, self.state.hoverRow)
-            self.undoRedo:Push(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
+        local activeGrid = self:GetActiveGridLayer()
+        if tool and self.state.currentTool == "select" and activeGrid and self.layerManager:CanEditCurrentLayer()
+            and self.layerManager:IsLayerVisibleById(self:GetCurrentLayerId()) then
+            tool:Paste(activeGrid, self.GRID_COLS, self.GRID_ROWS, self.state.hoverCol, self.state.hoverRow)
+            self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
         end
         return true
     end
 
     return self.state:HandleKeyPress(key, self.ui.tilePalette)
+end
+
+function EditorCore:SaveMap()
+    return self.serializer:Save(self.tileMap, self.collisionMap, self.GRID_COLS, self.GRID_ROWS, decorations, "map_save.json")
+end
+
+function EditorCore:LoadMap()
+    local success = self.serializer:Load(self.tileMap, self.collisionMap, decorations, "map_save.json")
+    if success then
+        self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+    end
+    return success
 end
 
 return EditorCore
