@@ -918,6 +918,7 @@ function HandleMouseButtonDown(eventType, eventData)
     local y = eventData["Y"]:GetInt()
 
     if EditorCore.enabled then
+        EditorCore:UpdateMouse(x, y)
         EditorCore:HandleMousePress(x, y, button)
     end
 end
@@ -927,8 +928,11 @@ function HandleMouseMove(eventType, eventData)
     local y = eventData["Y"]:GetInt()
     local buttons = eventData["Buttons"]:GetInt()
 
-    if EditorCore.enabled and buttons ~= 0 then
-        EditorCore:HandleMouseDrag(x, y, buttons)
+    if EditorCore.enabled then
+        EditorCore:UpdateMouse(x, y)
+        if buttons ~= 0 then
+            EditorCore:HandleMouseDrag(x, y, buttons)
+        end
     end
 end
 

@@ -22,8 +22,7 @@ function EditorState:new()
     return obj
 end
 
-function EditorState:Update(input, camera, logicalW, logicalH, TILE_SIZE, ISO_Y_SCALE, GRID_COLS, GRID_ROWS)
-    local mx, my = input:GetMousePosition()
+function EditorState:Update(mx, my, camera, logicalW, logicalH, TILE_SIZE, ISO_Y_SCALE, GRID_COLS, GRID_ROWS)
     local wx, wy = camera:ScreenToWorld(mx, my, logicalW, logicalH, ISO_Y_SCALE)
 
     self.hoverWorldX = wx

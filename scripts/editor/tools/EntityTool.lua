@@ -14,8 +14,7 @@ function EntityTool:new()
     return obj
 end
 
-function EntityTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS, decorations, camera, logicalW, logicalH)
-    local mx, my = input:GetMousePosition()
+function EntityTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS, decorations, camera, logicalW, logicalH, mx, my)
     local wx, wy = camera:ScreenToWorld(mx, my, logicalW, logicalH, 0.55)
 
     local found = false
@@ -41,9 +40,8 @@ function EntityTool:OnPress(col, row, state, tileMap, GRID_COLS, GRID_ROWS, deco
     return true
 end
 
-function EntityTool:OnDrag(col, row, state, tileMap, GRID_COLS, GRID_ROWS, decorations, camera, logicalW, logicalH)
+function EntityTool:OnDrag(col, row, state, tileMap, GRID_COLS, GRID_ROWS, decorations, camera, logicalW, logicalH, mx, my)
     if self.isDragging and self.selectedEntityIndex then
-        local mx, my = input:GetMousePosition()
         local wx, wy = camera:ScreenToWorld(mx, my, logicalW, logicalH, 0.55)
         local dec = decorations[self.selectedEntityIndex]
         if dec then

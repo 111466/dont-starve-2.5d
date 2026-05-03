@@ -51,7 +51,11 @@ function EditorCore:Update(dt, input, logicalW, logicalH)
     self.logicalH = logicalH
 
     self.camera:Update(dt, input)
-    self.state:Update(input, self.camera, logicalW, logicalH, self.TILE_SIZE, self.ISO_Y_SCALE, self.GRID_COLS, self.GRID_ROWS)
+end
+
+function EditorCore:UpdateMouse(mx, my)
+    if not self.enabled then return end
+    self.state:Update(mx, my, self.camera, self.logicalW, self.logicalH, self.TILE_SIZE, self.ISO_Y_SCALE, self.GRID_COLS, self.GRID_ROWS)
 end
 
 function EditorCore:Render(vg, logicalW, logicalH)
@@ -231,7 +235,7 @@ function EditorCore:HandleMousePress(x, y, button)
     local tool = self.tools[self.state.currentTool]
     if tool then
         if self.state.currentTool == "entity" then
-            local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH)
+            local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH, x, y)
             if result then
                 self.undoRedo:Push(self.tileMap, self.GRID_COLS, self.GRID_ROWS)
             end
@@ -254,7 +258,7 @@ function EditorCore:HandleMouseDrag(x, y, button)
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnDrag then
         if self.state.currentTool == "entity" then
-            return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH)
+            return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH, x, y)
         else
             return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS)
         end
