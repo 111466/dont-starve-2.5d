@@ -124,10 +124,10 @@ function EditorState:HandleKeyPress(key)
             self.currentTool = "brush"
         end
         return true
-    elseif key == KEY_ADD or key == KEY_KP_PLUS then
+    elseif key == KEY_KP_PLUS or key == KEY_EQUALS then
         self.brushSize = math.min(5, self.brushSize + 1)
         return true
-    elseif key == KEY_SUBTRACT or key == KEY_KP_MINUS then
+    elseif key == KEY_KP_MINUS or key == KEY_MINUS then
         self.brushSize = math.max(1, self.brushSize - 1)
         return true
     end
