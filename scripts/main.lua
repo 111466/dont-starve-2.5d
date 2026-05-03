@@ -378,50 +378,53 @@ function HandleNanoVGRender(eventType, eventData)
 
     nvgBeginFrame(vg, logicalW, logicalH, dpr)
 
-    -- 1. 天空背景(日夜循环)
-    DrawSky()
+    if EditorCore.enabled then
+        -- 编辑器模式: 使用编辑器自己的渲染
+        EditorCore:Render(vg, logicalW, logicalH)
+    else
+        -- 游戏模式
+        -- 1. 天空背景(日夜循环)
+        DrawSky()
 
-    -- 2. 地面瓦片
-    DrawGround()
+        -- 2. 地面瓦片
+        DrawGround()
 
-    -- 3. 收集需要排序的可绘制对象(按 Y 排序实现遮挡)
-    local drawables = {}
+        -- 3. 收集需要排序的可绘制对象(按 Y 排序实现遮挡)
+        local drawables = {}
 
-    -- 装饰物
-    for i, dec in ipairs(decorations) do
-        table.insert(drawables, {
-            y = dec.y,
-            type = "decoration",
-            data = dec,
-        })
-    end
-
-    -- 玩家
-    table.insert(drawables, {
-        y = player.worldY,
-        type = "player",
-    })
-
-    -- Y 排序
-    table.sort(drawables, function(a, b) return a.y < b.y end)
-
-    -- 4. 按顺序绘制
-    for _, obj in ipairs(drawables) do
-        if obj.type == "decoration" then
-            DrawDecoration(obj.data)
-        elseif obj.type == "player" then
-            DrawPlayer()
+        -- 装饰物
+        for i, dec in ipairs(decorations) do
+            table.insert(drawables, {
+                y = dec.y,
+                type = "decoration",
+                data = dec,
+            })
         end
+
+        -- 玩家
+        table.insert(drawables, {
+            y = player.worldY,
+            type = "player",
+        })
+
+        -- Y 排序
+        table.sort(drawables, function(a, b) return a.y < b.y end)
+
+        -- 4. 按顺序绘制
+        for _, obj in ipairs(drawables) do
+            if obj.type == "decoration" then
+                DrawDecoration(obj.data)
+            elseif obj.type == "player" then
+                DrawPlayer()
+            end
+        end
+
+        -- 5. 日夜光照叠加
+        DrawLighting()
+
+        -- 6. HUD
+        DrawHUD()
     end
-
-    -- 5. 日夜光照叠加
-    DrawLighting()
-
-    -- 6. 编辑器渲染
-    EditorCore:Render(vg, logicalW, logicalH)
-
-    -- 7. HUD
-    DrawHUD()
 
     nvgEndFrame(vg)
 end

@@ -24,6 +24,7 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_R
     self.camera = require("scripts/editor/EditorCamera"):new()
     self.state = require("scripts/editor/EditorState"):new()
     self.ui = require("scripts/editor/EditorUI"):new()
+    self.ui:Init(tileSprites)
     self.undoRedo = require("scripts/editor/UndoRedo"):new()
     self.serializer = require("scripts/editor/MapSerializer")
     self.layerManager = require("scripts/editor/LayerManager"):new()
@@ -64,7 +65,16 @@ function EditorCore:Render(vg, logicalW, logicalH)
     self.logicalW = logicalW
     self.logicalH = logicalH
 
+    -- 绘制编辑器背景
+    self:DrawBackground()
+
+    -- 绘制地图瓦片
+    self:DrawMap()
+
+    -- 绘制UI (工具栏、调色板等)
     self.ui:Render(vg, logicalW, logicalH, self.state, self.camera, self.layerManager)
+
+    -- 绘制网格和高亮
     if self.state.showGrid then
         self:DrawGrid()
     end
@@ -72,6 +82,85 @@ function EditorCore:Render(vg, logicalW, logicalH)
     self:DrawBrushPreview()
     self:DrawEntitySelection()
     self:DrawSelectionRect()
+end
+
+function EditorCore:DrawBackground()
+    local vg = self.vg
+    -- 深色背景
+    nvgBeginPath(vg)
+    nvgRect(vg, 0, 0, self.logicalW, self.logicalH)
+    nvgFillColor(vg, nvgRGBA(25, 28, 35, 255))
+    nvgFill(vg)
+end
+
+function EditorCore:DrawMap()
+    local vg = self.vg
+    local cam = self.camera
+
+    -- 计算可见范围
+    local margin = self.TILE_SIZE * 2
+    local startCol = math.max(1, math.floor((cam.position.x - self.logicalW / 2 / cam.zoom - margin) / self.TILE_SIZE) + 1)
+    local endCol = math.min(self.GRID_COLS, math.ceil((cam.position.x + self.logicalW / 2 / cam.zoom + margin) / self.TILE_SIZE) + 1)
+    local startRow = math.max(1, math.floor((cam.position.y - self.logicalH / 2 / cam.zoom / self.ISO_Y_SCALE - margin) / self.TILE_SIZE) + 1)
+    local endRow = math.min(self.GRID_ROWS, math.ceil((cam.position.y + self.logicalH / 2 / cam.zoom / self.ISO_Y_SCALE + margin) / self.TILE_SIZE) + 1)
+
+    local TILE_IMG_W = self.TILE_SIZE
+    local TILE_IMG_H = self.TILE_SIZE * self.ISO_Y_SCALE
+
+    for row = startRow, endRow do
+        for col = startCol, endCol do
+            local tileType = self.tileMap[row] and self.tileMap[row][col] or 0
+            local wx = (col - 1) * self.TILE_SIZE + self.TILE_SIZE / 2
+            local wy = (row - 1) * self.TILE_SIZE + self.TILE_SIZE / 2
+            local sx, sy = cam:WorldToScreen(wx, wy, self.logicalW, self.logicalH, self.ISO_Y_SCALE)
+
+            -- 选择瓦片贴图
+            local spriteHandle = -1
+            if tileType == 0 then
+                if (col * 7 + row * 13) % 2 == 0 then
+                    spriteHandle = self.tileSprites.grass1
+                else
+                    spriteHandle = self.tileSprites.grass2
+                end
+            elseif tileType == 1 then
+                spriteHandle = self.tileSprites.dirt
+            else
+                spriteHandle = self.tileSprites.stone
+            end
+
+            local w = TILE_IMG_W * cam.zoom
+            local h = TILE_IMG_H * cam.zoom
+
+            if spriteHandle ~= -1 then
+                local drawX = sx - w / 2
+                local drawY = sy - h / 2
+                local imgPaint = nvgImagePattern(vg, drawX, drawY, w, h, 0, spriteHandle, 1.0)
+                nvgBeginPath(vg)
+                nvgRect(vg, drawX, drawY, w, h)
+                nvgFillPaint(vg, imgPaint)
+                nvgFill(vg)
+            else
+                local hw = self.TILE_SIZE / 2 * cam.zoom
+                local hh = self.TILE_SIZE * self.ISO_Y_SCALE / 2 * cam.zoom
+                local r, g, b
+                if tileType == 0 then
+                    r, g, b = 85, 150, 65
+                elseif tileType == 1 then
+                    r, g, b = 150, 115, 75
+                else
+                    r, g, b = 160, 155, 145
+                end
+                nvgBeginPath(vg)
+                nvgMoveTo(vg, sx, sy - hh)
+                nvgLineTo(vg, sx + hw, sy)
+                nvgLineTo(vg, sx, sy + hh)
+                nvgLineTo(vg, sx - hw, sy)
+                nvgClosePath(vg)
+                nvgFillColor(vg, nvgRGBA(r, g, b, 255))
+                nvgFill(vg)
+            end
+        end
+    end
 end
 
 function EditorCore:DrawGrid()

@@ -1,14 +1,8 @@
 local EditorUI = {
-    paletteWidth = 140,
+    paletteWidth = 160,
     toolbarHeight = 44,
     statusbarHeight = 32,
-}
-
-local TILE_PALETTE = {
-    { id = 0, name = "草地1", color = {85, 150, 65} },
-    { id = 1, name = "泥土", color = {150, 115, 75} },
-    { id = 2, name = "石头", color = {160, 155, 145} },
-    { id = 3, name = "草地2", color = {75, 140, 60} },
+    tilePalette = nil,
 }
 
 local TOOL_ICONS = {
@@ -29,6 +23,11 @@ function EditorUI:new()
     return obj
 end
 
+function EditorUI:Init(tileSprites)
+    self.tilePalette = require("scripts/editor/TilePalette")
+    self.tilePalette:InitFromSprites(tileSprites)
+end
+
 function EditorUI:Render(vg, logicalW, logicalH, state, camera, layerManager)
     self.logicalW = logicalW
     self.logicalH = logicalH
@@ -42,22 +41,25 @@ end
 function EditorUI:DrawToolbar(vg, state, layerManager)
     local h = self.toolbarHeight
 
+    -- 工具栏背景
     nvgBeginPath(vg)
     nvgRect(vg, 0, 0, self.logicalW, h)
     nvgFillColor(vg, nvgRGBA(35, 38, 45, 240))
     nvgFill(vg)
 
+    -- 底部分割线
     nvgBeginPath(vg)
     nvgRect(vg, 0, h - 1, self.logicalW, 1)
     nvgFillColor(vg, nvgRGBA(80, 85, 100, 200))
     nvgFill(vg)
 
+    -- 标题文字
     nvgFontSize(vg, 15)
-    nvgFontFaceId(vg, -1)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 240))
     nvgText(vg, 12, h / 2, "地图编辑器", nil)
 
+    -- 工具按钮
     local toolX = 110
     for toolName, toolLabel in pairs(TOOL_ICONS) do
         local isActive = (state.currentTool == toolName)
@@ -78,6 +80,7 @@ function EditorUI:DrawToolbar(vg, state, layerManager)
         toolX = toolX + tw + 6
     end
 
+    -- 快捷键提示
     nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(180, 180, 180, 180))
@@ -86,6 +89,7 @@ end
 
 function EditorUI:DrawPalette(vg, state)
     if not state.paletteOpen then return end
+    if not self.tilePalette then return end
 
     local x = 0
     local y = self.toolbarHeight
@@ -108,11 +112,12 @@ function EditorUI:DrawPalette(vg, state)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
     nvgText(vg, w / 2, y + 10, "瓦片调色板", nil)
 
-    local itemH = 44
+    local items = self.tilePalette:GetItems()
+    local itemH = 50
     local itemMargin = 6
     local startY = y + 34
 
-    for i, tile in ipairs(TILE_PALETTE) do
+    for i, tile in ipairs(items) do
         local iy = startY + (i - 1) * (itemH + itemMargin)
         local ix = itemMargin
         local iw = w - itemMargin * 2
@@ -128,10 +133,18 @@ function EditorUI:DrawPalette(vg, state)
             nvgStroke(vg)
         end
 
-        nvgBeginPath(vg)
-        nvgRoundedRect(vg, ix, iy, iw, ih, 3)
-        nvgFillColor(vg, nvgRGBA(tile.color[1], tile.color[2], tile.color[3], 255))
-        nvgFill(vg)
+        if tile.handle and tile.handle ~= -1 then
+            local imgPaint = nvgImagePattern(vg, ix, iy, iw, ih, 0, tile.handle, 1.0)
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, ix, iy, iw, ih, 3)
+            nvgFillPaint(vg, imgPaint)
+            nvgFill(vg)
+        else
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, ix, iy, iw, ih, 3)
+            nvgFillColor(vg, nvgRGBA(tile.color[1], tile.color[2], tile.color[3], 255))
+            nvgFill(vg)
+        end
 
         nvgFontSize(vg, 11)
         nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
