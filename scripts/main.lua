@@ -215,20 +215,6 @@ function LoadTileSprites()
     tileSprites.dirt = -1
     tileSprites.stone = -1
 
-    local function RunCapture(command)
-        local pipe = io.popen(command)
-        if not pipe then
-            return nil
-        end
-        local output = pipe:read("*a")
-        pipe:close()
-        return output
-    end
-
-    local function Trim(value)
-        return (value:gsub("^%s+", ""):gsub("%s+$", ""))
-    end
-
     local function GuessKeyFromFilename(filename)
         local lower = string.lower(filename)
         if string.find(lower, "grass1", 1, true) then
@@ -251,70 +237,71 @@ function LoadTileSprites()
         return name
     end
 
-    local function ScanImageFilenames()
-        local commands = {
-            "powershell -NoProfile -Command \"Get-ChildItem -Path 'assets/image' -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\\.(png|jpg|jpeg|gif|webp)$' } | Sort-Object Name | Select-Object -ExpandProperty Name\"",
-            "powershell -NoProfile -Command \"Get-ChildItem -Path 'image' -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\\.(png|jpg|jpeg|gif|webp)$' } | Sort-Object Name | Select-Object -ExpandProperty Name\"",
-        }
-
-        for _, command in ipairs(commands) do
-            local output = RunCapture(command)
-            if output and output ~= "" then
-                local filenames = {}
-                for line in output:gmatch("[^\r\n]+") do
-                    local filename = Trim(line)
-                    if filename ~= "" then
-                        local ext = string.lower(filename:match("%.([^%.]+)$") or "")
-                        if IMAGE_EXTENSIONS[ext] then
-                            table.insert(filenames, filename)
-                        end
-                    end
-                end
-                if #filenames > 0 then
-                    return filenames
-                end
-            end
-        end
-
-        return {}
+    local function ExtractFilename(resourcePath)
+        return resourcePath:match("([^/\\]+)$") or resourcePath
     end
 
-    local filenames = ScanImageFilenames()
-    for _, filename in ipairs(filenames) do
-        local resourcePath = "image/" .. filename
-        local handle = nvgCreateImage(vg, resourcePath, 0)
-
-        if handle == -1 then
-            print("WARNING: Failed to load tile sprite: " .. resourcePath)
-        else
-            local width, height = nvgImageSize(vg, handle)
-            local key, tileId, color, guessedName = GuessKeyFromFilename(filename)
-            local displayName = guessedName
-            if not key then
-                displayName = MakeDisplayName(filename)
-            end
-
-            table.insert(tileImageEntries, {
-                key = key,
-                name = displayName,
-                path = resourcePath,
-                handle = handle,
-                width = width,
-                height = height,
-                tileId = tileId,
-                color = color,
-            })
-
-            if key and tileSprites[key] == -1 then
-                tileSprites[key] = handle
-            end
-
-            print("Loaded editor image [" .. filename .. "], handle =", handle)
+    local function AddTileImage(resourcePath, seenPaths)
+        if seenPaths[resourcePath] then
+            return false
         end
+
+        local handle = nvgCreateImage(vg, resourcePath, 0)
+        if handle == -1 then
+            return false
+        end
+
+        seenPaths[resourcePath] = true
+
+        local filename = ExtractFilename(resourcePath)
+        local width, height = nvgImageSize(vg, handle)
+        local key, tileId, color, guessedName = GuessKeyFromFilename(filename)
+        local displayName = guessedName
+        if not key then
+            displayName = MakeDisplayName(filename)
+        end
+
+        table.insert(tileImageEntries, {
+            key = key,
+            name = displayName,
+            path = resourcePath,
+            handle = handle,
+            width = width,
+            height = height,
+            tileId = tileId,
+            color = color,
+        })
+
+        if key and tileSprites[key] == -1 then
+            tileSprites[key] = handle
+        end
+
+        print("Loaded editor image [" .. filename .. "], handle =", handle)
+        return true
+    end
+
+    local knownTilePaths = {
+        "image/tile_grass1_20260502235946.png",
+        "image/tile_grass1_20260502235438.png",
+        "image/tile_grass2_20260502235944.png",
+        "image/tile_grass2_20260502235931.png",
+        "image/tile_dirt_20260502235945.png",
+        "image/tile_dirt_20260502235434.png",
+        "image/tile_stone_20260503000116.png",
+        "image/tile_stone_20260502235433.png",
+        "image/tile_grass1.png",
+        "image/tile_grass2.png",
+        "image/tile_dirt.png",
+        "image/tile_stone.png",
+    }
+
+    local seenPaths = {}
+    for _, resourcePath in ipairs(knownTilePaths) do
+        AddTileImage(resourcePath, seenPaths)
     end
 
     if #tileImageEntries == 0 then
-        print("WARNING: No images found in assets/image or image for editor palette")
+        print("WARNING: No tile images loaded; using fallback colors for ground and palette")
     end
 end
 
