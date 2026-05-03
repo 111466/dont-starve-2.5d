@@ -10,6 +10,11 @@
 require "LuaScripts/Utilities/Sample"
 
 -- ============================================================================
+-- 编辑器
+-- ============================================================================
+local EditorCore = require("scripts/editor/EditorCore")
+
+-- ============================================================================
 -- NanoVG 上下文 & 字体
 -- ============================================================================
 local vg = nil
@@ -132,6 +137,9 @@ function Start()
     camX = player.worldX
     camY = player.worldY
 
+    -- 初始化编辑器
+    EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites)
+
     -- 鼠标模式
     SampleInitMouseMode(MM_FREE)
 
@@ -139,9 +147,14 @@ function Start()
     SubscribeToEvent(vg, "NanoVGRender", "HandleNanoVGRender")
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("ScreenMode", "HandleScreenMode")
+    SubscribeToEvent("MouseButtonDown", "HandleMouseButtonDown")
+    SubscribeToEvent("MouseButtonUp", "HandleMouseButtonUp")
+    SubscribeToEvent("MouseMove", "HandleMouseMove")
+    SubscribeToEvent("KeyDown", "HandleKeyDown")
 
     print("=== 饥荒风格 2.5D 游戏已启动 ===")
     print("WASD 移动角色")
+    print("F12 切换编辑器模式")
 end
 
 function Stop()
@@ -283,12 +296,19 @@ function HandleUpdate(eventType, eventData)
     dayTime = (gameTime / DAY_DURATION) % 1.0
 
     -- 处理输入
-    UpdatePlayerInput(dt)
+    if not EditorCore.enabled then
+        UpdatePlayerInput(dt)
+    end
+
+    -- 编辑器更新
+    EditorCore:Update(dt, input, logicalW, logicalH)
 
     -- 相机平滑跟随
-    local camLerp = 1 - math.pow(0.001, dt)
-    camX = camX + (player.worldX - camX) * camLerp
-    camY = camY + (player.worldY - camY) * camLerp
+    if not EditorCore.enabled then
+        local camLerp = 1 - math.pow(0.001, dt)
+        camX = camX + (player.worldX - camX) * camLerp
+        camY = camY + (player.worldY - camY) * camLerp
+    end
 end
 
 function UpdatePlayerInput(dt)
@@ -397,7 +417,10 @@ function HandleNanoVGRender(eventType, eventData)
     -- 5. 日夜光照叠加
     DrawLighting()
 
-    -- 6. HUD
+    -- 6. 编辑器渲染
+    EditorCore:Render(vg, logicalW, logicalH)
+
+    -- 7. HUD
     DrawHUD()
 
     nvgEndFrame(vg)
@@ -881,5 +904,53 @@ function DrawHUD()
     nvgFontSize(vg, 13)
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 150))
-    nvgText(vg, logicalW / 2, logicalH - 12, "WASD / 方向键 移动", nil)
+    local hintText = EditorCore.enabled and "编辑器模式: WASD移动视角 滚轮缩放 左键绘制 右键擦除 F12退出" or "WASD / 方向键 移动 | F12 编辑器"
+    nvgText(vg, logicalW / 2, logicalH - 12, hintText, nil)
+end
+
+-- ============================================================================
+-- 输入事件处理
+-- ============================================================================
+
+function HandleMouseButtonDown(eventType, eventData)
+    local button = eventData["Button"]:GetInt()
+    local x = eventData["X"]:GetInt()
+    local y = eventData["Y"]:GetInt()
+
+    if EditorCore.enabled then
+        EditorCore:HandleMousePress(x, y, button)
+    end
+end
+
+function HandleMouseMove(eventType, eventData)
+    local x = eventData["X"]:GetInt()
+    local y = eventData["Y"]:GetInt()
+    local buttons = eventData["Buttons"]:GetInt()
+
+    if EditorCore.enabled and buttons ~= 0 then
+        EditorCore:HandleMouseDrag(x, y, buttons)
+    end
+end
+
+function HandleMouseButtonUp(eventType, eventData)
+    local button = eventData["Button"]:GetInt()
+    local x = eventData["X"]:GetInt()
+    local y = eventData["Y"]:GetInt()
+
+    if EditorCore.enabled then
+        EditorCore:HandleMouseRelease(x, y, button)
+    end
+end
+
+function HandleKeyDown(eventType, eventData)
+    local key = eventData["Key"]:GetInt()
+
+    if key == KEY_F12 then
+        EditorCore:Toggle()
+        return
+    end
+
+    if EditorCore.enabled then
+        EditorCore:HandleKeyPress(key)
+    end
 end
