@@ -25,7 +25,7 @@ local function CreateGrid(cols, rows, defaultValue)
     return grid
 end
 
-function EditorCore:Init(vg, logicalW, logicalH, dpr, fontId, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
+function EditorCore:Init(vg, logicalW, logicalH, dpr, fontId, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries, decorations)
     self.vg = vg
     self.logicalW = logicalW
     self.logicalH = logicalH
@@ -37,6 +37,7 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, fontId, tileMap, GRID_COLS
     self.ISO_Y_SCALE = ISO_Y_SCALE
     self.tileSprites = tileSprites
     self.tileImageEntries = tileImageEntries or {}
+    self.decorations = decorations or {}
     self.collisionMap = CreateGrid(GRID_COLS, GRID_ROWS, 0)
 
     self.camera = require("scripts/editor/EditorCamera"):new()
@@ -53,7 +54,7 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, fontId, tileMap, GRID_COLS
     self.tools["entity"] = require("scripts/editor/tools/EntityTool"):new()
     self.tools["select"] = require("scripts/editor/tools/SelectTool"):new()
 
-    self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+    self.undoRedo:Push(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
 
     print("[Editor] Core initialized")
 end
@@ -193,7 +194,7 @@ end
 
 function EditorCore:DrawDecorations()
     local drawables = {}
-    for _, dec in ipairs(decorations) do
+    for _, dec in ipairs(self.decorations) do
         drawables[#drawables + 1] = dec
     end
 
@@ -431,7 +432,7 @@ function EditorCore:DrawEntitySelection()
     if not tool or not tool.selectedEntityIndex then return end
 
     local vg = self.vg
-    local dec = decorations[tool.selectedEntityIndex]
+    local dec = self.decorations[tool.selectedEntityIndex]
     if not dec then return end
 
     local sx, sy = self.camera:WorldToScreen(dec.x, dec.y, self.logicalW, self.logicalH, self.ISO_Y_SCALE)
@@ -519,9 +520,9 @@ function EditorCore:HandleMousePress(x, y, button)
     local tool = self.tools[self.state.currentTool]
     if tool then
         if layerId == "decoration" and self.state.currentTool == "entity" then
-            local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH, x, y)
+            local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, self.decorations, self.camera, self.logicalW, self.logicalH, x, y)
             if result then
-                self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+                self.undoRedo:Push(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
             end
             return result
         end
@@ -530,7 +531,7 @@ function EditorCore:HandleMousePress(x, y, button)
         if activeGrid then
             local result = tool:OnPress(self.state.hoverCol, self.state.hoverRow, self.state, layerId, activeGrid, self.GRID_COLS, self.GRID_ROWS)
             if result then
-                self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+                self.undoRedo:Push(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
             end
             return result
         end
@@ -560,7 +561,7 @@ function EditorCore:HandleMouseDrag(x, y, button)
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnDrag then
         if layerId == "decoration" and self.state.currentTool == "entity" then
-            return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations, self.camera, self.logicalW, self.logicalH, x, y)
+            return tool:OnDrag(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, self.decorations, self.camera, self.logicalW, self.logicalH, x, y)
         end
 
         local activeGrid = self:GetActiveGridLayer()
@@ -586,7 +587,7 @@ function EditorCore:HandleMouseRelease(x, y, button)
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnRelease then
         if layerId == "decoration" and self.state.currentTool == "entity" then
-            return tool:OnRelease(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, decorations)
+            return tool:OnRelease(self.state.hoverCol, self.state.hoverRow, self.state, self.tileMap, self.GRID_COLS, self.GRID_ROWS, self.decorations)
         end
 
         local activeGrid = self:GetActiveGridLayer()
@@ -601,10 +602,10 @@ function EditorCore:HandleKeyPress(key)
     if not self.enabled then return false end
 
     if key == KEY_Z and input:GetKeyDown(KEY_CTRL) then
-        self.undoRedo:Undo(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+        self.undoRedo:Undo(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
         return true
     elseif key == KEY_Y and input:GetKeyDown(KEY_CTRL) then
-        self.undoRedo:Redo(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+        self.undoRedo:Redo(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
         return true
     elseif key == KEY_F2 then
         self:SaveMap()
@@ -615,8 +616,8 @@ function EditorCore:HandleKeyPress(key)
     elseif key == KEY_DELETE then
         local tool = self.tools["entity"]
         if tool and self.state.currentTool == "entity" and self:GetCurrentLayerId() == "decoration" then
-            if tool:DeleteSelected(decorations) then
-                self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+            if tool:DeleteSelected(self.decorations) then
+                self.undoRedo:Push(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
             end
         end
         return true
@@ -654,7 +655,7 @@ function EditorCore:HandleKeyPress(key)
         if tool and self.state.currentTool == "select" and activeGrid and self.layerManager:CanEditCurrentLayer()
             and self.layerManager:IsLayerVisibleById(self:GetCurrentLayerId()) then
             tool:Paste(activeGrid, self.GRID_COLS, self.GRID_ROWS, self.state.hoverCol, self.state.hoverRow)
-            self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+            self.undoRedo:Push(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
         end
         return true
     end
@@ -663,13 +664,13 @@ function EditorCore:HandleKeyPress(key)
 end
 
 function EditorCore:SaveMap()
-    return self.serializer:Save(self.tileMap, self.collisionMap, self.GRID_COLS, self.GRID_ROWS, decorations, "map_save.json")
+    return self.serializer:Save(self.tileMap, self.collisionMap, self.GRID_COLS, self.GRID_ROWS, self.decorations, "map_save.json")
 end
 
 function EditorCore:LoadMap()
-    local success = self.serializer:Load(self.tileMap, self.collisionMap, decorations, "map_save.json")
+    local success = self.serializer:Load(self.tileMap, self.collisionMap, self.decorations, "map_save.json")
     if success then
-        self.undoRedo:Push(self.tileMap, self.collisionMap, decorations, self.GRID_COLS, self.GRID_ROWS)
+        self.undoRedo:Push(self.tileMap, self.collisionMap, self.decorations, self.GRID_COLS, self.GRID_ROWS)
     end
     return success
 end
