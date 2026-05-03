@@ -289,10 +289,6 @@ function LoadTileSprites()
         "image/tile_dirt_20260502235434.png",
         "image/tile_stone_20260503000116.png",
         "image/tile_stone_20260502235433.png",
-        "image/tile_grass1.png",
-        "image/tile_grass2.png",
-        "image/tile_dirt.png",
-        "image/tile_stone.png",
     }
 
     local seenPaths = {}
