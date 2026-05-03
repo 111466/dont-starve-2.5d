@@ -9,7 +9,7 @@ local EditorCore = {
     tools = {},
 }
 
-function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites)
+function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, atlasPath, atlasTileSize)
     self.vg = vg
     self.logicalW = logicalW
     self.logicalH = logicalH
@@ -20,11 +20,13 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_R
     self.TILE_SIZE = TILE_SIZE
     self.ISO_Y_SCALE = ISO_Y_SCALE
     self.tileSprites = tileSprites
+    self.atlasPath = atlasPath
+    self.atlasTileSize = atlasTileSize
 
     self.camera = require("scripts/editor/EditorCamera"):new()
     self.state = require("scripts/editor/EditorState"):new()
     self.ui = require("scripts/editor/EditorUI"):new()
-    self.ui:Init(tileSprites)
+    self.ui:Init(vg, tileSprites, atlasPath, atlasTileSize)
     self.undoRedo = require("scripts/editor/UndoRedo"):new()
     self.serializer = require("scripts/editor/MapSerializer")
     self.layerManager = require("scripts/editor/LayerManager"):new()
@@ -56,6 +58,7 @@ end
 
 function EditorCore:UpdateMouse(mx, my)
     if not self.enabled then return end
+    self.camera:UpdatePan(mx, my, self.ISO_Y_SCALE)
     self.state:Update(mx, my, self.camera, self.logicalW, self.logicalH, self.TILE_SIZE, self.ISO_Y_SCALE, self.GRID_COLS, self.GRID_ROWS)
 end
 
@@ -107,6 +110,9 @@ function EditorCore:DrawMap()
     local TILE_IMG_W = self.TILE_SIZE
     local TILE_IMG_H = self.TILE_SIZE * self.ISO_Y_SCALE
 
+    local isAtlasMode = self.ui.tilePalette:IsAtlasMode()
+    local atlasInfo = isAtlasMode and self.ui.tilePalette:GetAtlasInfo() or nil
+
     for row = startRow, endRow do
         for col = startCol, endCol do
             local tileType = self.tileMap[row] and self.tileMap[row][col] or 0
@@ -114,52 +120,88 @@ function EditorCore:DrawMap()
             local wy = (row - 1) * self.TILE_SIZE + self.TILE_SIZE / 2
             local sx, sy = cam:WorldToScreen(wx, wy, self.logicalW, self.logicalH, self.ISO_Y_SCALE)
 
-            -- 选择瓦片贴图
-            local spriteHandle = -1
-            if tileType == 0 then
-                if (col * 7 + row * 13) % 2 == 0 then
-                    spriteHandle = self.tileSprites.grass1
-                else
-                    spriteHandle = self.tileSprites.grass2
-                end
-            elseif tileType == 1 then
-                spriteHandle = self.tileSprites.dirt
-            else
-                spriteHandle = self.tileSprites.stone
-            end
-
             local w = TILE_IMG_W * cam.zoom
             local h = TILE_IMG_H * cam.zoom
+            local drawX = sx - w / 2
+            local drawY = sy - h / 2
 
-            if spriteHandle ~= -1 then
-                local drawX = sx - w / 2
-                local drawY = sy - h / 2
-                local imgPaint = nvgImagePattern(vg, drawX, drawY, w, h, 0, spriteHandle, 1.0)
-                nvgBeginPath(vg)
-                nvgRect(vg, drawX, drawY, w, h)
-                nvgFillPaint(vg, imgPaint)
-                nvgFill(vg)
+            if isAtlasMode and atlasInfo then
+                self:DrawAtlasTile(vg, tileType, drawX, drawY, w, h, atlasInfo)
             else
-                local hw = self.TILE_SIZE / 2 * cam.zoom
-                local hh = self.TILE_SIZE * self.ISO_Y_SCALE / 2 * cam.zoom
-                local r, g, b
-                if tileType == 0 then
-                    r, g, b = 85, 150, 65
-                elseif tileType == 1 then
-                    r, g, b = 150, 115, 75
-                else
-                    r, g, b = 160, 155, 145
-                end
-                nvgBeginPath(vg)
-                nvgMoveTo(vg, sx, sy - hh)
-                nvgLineTo(vg, sx + hw, sy)
-                nvgLineTo(vg, sx, sy + hh)
-                nvgLineTo(vg, sx - hw, sy)
-                nvgClosePath(vg)
-                nvgFillColor(vg, nvgRGBA(r, g, b, 255))
-                nvgFill(vg)
+                self:DrawSimpleTile(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
             end
         end
+    end
+end
+
+function EditorCore:DrawAtlasTile(vg, tileType, drawX, drawY, w, h, atlasInfo)
+    local tile = self.ui.tilePalette:GetById(tileType)
+    if tile and tile.handle ~= -1 then
+        local scaleX = w / tile.uvW
+        local scaleY = h / tile.uvH
+        local imgPaint = nvgImagePattern(vg,
+            drawX - tile.uvX * scaleX,
+            drawY - tile.uvY * scaleY,
+            atlasInfo.width * scaleX,
+            atlasInfo.height * scaleY,
+            0, tile.handle, 1.0)
+        nvgBeginPath(vg)
+        nvgRect(vg, drawX, drawY, w, h)
+        nvgFillPaint(vg, imgPaint)
+        nvgFill(vg)
+    else
+        local hw = w / 2
+        local hh = h / 2
+        nvgBeginPath(vg)
+        nvgMoveTo(vg, drawX + w / 2, drawY)
+        nvgLineTo(vg, drawX + w, drawY + hh)
+        nvgLineTo(vg, drawX + w / 2, drawY + h)
+        nvgLineTo(vg, drawX, drawY + hh)
+        nvgClosePath(vg)
+        nvgFillColor(vg, nvgRGBA(85, 150, 65, 255))
+        nvgFill(vg)
+    end
+end
+
+function EditorCore:DrawSimpleTile(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
+    local spriteHandle = -1
+    if tileType == 0 then
+        if (col * 7 + row * 13) % 2 == 0 then
+            spriteHandle = self.tileSprites.grass1
+        else
+            spriteHandle = self.tileSprites.grass2
+        end
+    elseif tileType == 1 then
+        spriteHandle = self.tileSprites.dirt
+    else
+        spriteHandle = self.tileSprites.stone
+    end
+
+    if spriteHandle ~= -1 then
+        local imgPaint = nvgImagePattern(vg, drawX, drawY, w, h, 0, spriteHandle, 1.0)
+        nvgBeginPath(vg)
+        nvgRect(vg, drawX, drawY, w, h)
+        nvgFillPaint(vg, imgPaint)
+        nvgFill(vg)
+    else
+        local hw = self.TILE_SIZE / 2
+        local hh = self.TILE_SIZE * self.ISO_Y_SCALE / 2
+        local r, g, b
+        if tileType == 0 then
+            r, g, b = 85, 150, 65
+        elseif tileType == 1 then
+            r, g, b = 150, 115, 75
+        else
+            r, g, b = 160, 155, 145
+        end
+        nvgBeginPath(vg)
+        nvgMoveTo(vg, sx, sy - hh)
+        nvgLineTo(vg, sx + hw, sy)
+        nvgLineTo(vg, sx, sy + hh)
+        nvgLineTo(vg, sx - hw, sy)
+        nvgClosePath(vg)
+        nvgFillColor(vg, nvgRGBA(r, g, b, 255))
+        nvgFill(vg)
     end
 end
 
@@ -321,6 +363,55 @@ end
 function EditorCore:HandleMousePress(x, y, button)
     if not self.enabled then return false end
 
+    if button == 3 then
+        self.camera:StartPan(x, y)
+        return true
+    end
+
+    if self.camera.isPanning then return true end
+
+    -- 检查是否点击了调色板
+    if self.ui:HandlePaletteClick(x, y, self.state) then
+        return true
+    end
+
+    -- 检查是否点击了图层面板
+    local layerPanelX = self.logicalW - 140
+    local layerPanelY = self.ui.toolbarHeight + 10
+    local itemH = 28
+    local addButtonH = 24
+    local layerPanelH = self.layerManager:GetLayerCount() * itemH + 40 + addButtonH
+
+    if x >= layerPanelX and x <= self.logicalW and y >= layerPanelY and y <= layerPanelY + layerPanelH then
+        -- 检查是否点击了添加图层按钮
+        local addY = layerPanelY + 26 + self.layerManager:GetLayerCount() * itemH + 4
+        if y >= addY and y <= addY + addButtonH - 4 then
+            self.layerManager:AddLayer("新图层")
+            return true
+        end
+
+        -- 检查是否点击了图层项
+        for i = 1, self.layerManager:GetLayerCount() do
+            local ly = layerPanelY + 26 + (i - 1) * itemH
+            if y >= ly and y <= ly + itemH then
+                -- 检查可见性按钮 (左侧圆点)
+                if x >= layerPanelX + 8 and x <= layerPanelX + 20 then
+                    self.layerManager:ToggleVisibility(i)
+                    return true
+                -- 检查可编辑性按钮
+                elseif x >= layerPanelX + 22 and x <= layerPanelX + 34 then
+                    self.layerManager:ToggleEditable(i)
+                    return true
+                -- 点击图层名称切换当前图层
+                else
+                    self.layerManager:SetCurrentLayer(i)
+                    return true
+                end
+            end
+        end
+        return true
+    end
+
     local tool = self.tools[self.state.currentTool]
     if tool then
         if self.state.currentTool == "entity" then
@@ -344,6 +435,10 @@ end
 function EditorCore:HandleMouseDrag(x, y, button)
     if not self.enabled then return false end
 
+    if self.camera.isPanning then
+        return true
+    end
+
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnDrag then
         if self.state.currentTool == "entity" then
@@ -358,6 +453,13 @@ end
 
 function EditorCore:HandleMouseRelease(x, y, button)
     if not self.enabled then return false end
+
+    if button == 3 then
+        self.camera:EndPan()
+        return true
+    end
+
+    if self.camera.isPanning then return true end
 
     local tool = self.tools[self.state.currentTool]
     if tool and tool.OnRelease then
@@ -428,7 +530,7 @@ function EditorCore:HandleKeyPress(key)
         return true
     end
 
-    return self.state:HandleKeyPress(key)
+    return self.state:HandleKeyPress(key, self.ui.tilePalette)
 end
 
 return EditorCore

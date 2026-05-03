@@ -138,7 +138,12 @@ function Start()
     camY = player.worldY
 
     -- 初始化编辑器
-    EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites)
+    -- 如果要使用图集模式，取消下面一行的注释并指定图集路径和瓦片尺寸
+    -- local atlasPath = "image/tile_atlas.png"
+    -- local atlasTileSize = 16
+    local atlasPath = nil
+    local atlasTileSize = nil
+    EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, atlasPath, atlasTileSize)
 
     -- 鼠标模式
     SampleInitMouseMode(MM_FREE)

@@ -23,9 +23,13 @@ function EditorUI:new()
     return obj
 end
 
-function EditorUI:Init(tileSprites)
+function EditorUI:Init(vg, tileSprites, atlasPath, atlasTileSize)
     self.tilePalette = require("scripts/editor/TilePalette")
-    self.tilePalette:InitFromSprites(tileSprites)
+    if atlasPath and atlasPath ~= "" then
+        self.tilePalette:InitFromAtlas(vg, atlasPath, atlasTileSize or 16)
+    else
+        self.tilePalette:InitFromSprites(tileSprites)
+    end
 end
 
 function EditorUI:Render(vg, logicalW, logicalH, state, camera, layerManager)
@@ -113,13 +117,85 @@ function EditorUI:DrawPalette(vg, state)
     nvgText(vg, w / 2, y + 10, "瓦片调色板", nil)
 
     local items = self.tilePalette:GetItems()
+    local isAtlas = self.tilePalette:IsAtlasMode()
+
+    if isAtlas then
+        self:DrawAtlasPalette(vg, state, x, y, w, h, items)
+    else
+        self:DrawSimplePalette(vg, state, x, y, w, items)
+    end
+end
+
+function EditorUI:DrawAtlasPalette(vg, state, x, y, w, h, items)
+    local atlasInfo = self.tilePalette:GetAtlasInfo()
+    local tileDisplaySize = 32
+    local padding = 6
+    local cols = math.floor((w - padding * 2) / (tileDisplaySize + padding))
+    if cols < 1 then cols = 1 end
+
+    local startY = y + 34
+    local totalItems = #items
+    local rows = math.ceil(totalItems / cols)
+
+    nvgFontSize(vg, 10)
+    nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+    nvgFillColor(vg, nvgRGBA(180, 180, 180, 180))
+    nvgText(vg, x + padding, startY - 14,
+        string.format("%dx%d 共%d个", atlasInfo.cols, atlasInfo.rows, totalItems), nil)
+
+    for i, tile in ipairs(items) do
+        local colIndex = (i - 1) % cols
+        local rowIndex = math.floor((i - 1) / cols)
+        local ix = x + padding + colIndex * (tileDisplaySize + padding)
+        local iy = startY + rowIndex * (tileDisplaySize + padding)
+
+        if iy + tileDisplaySize > y + h then break end
+
+        local isSelected = (state.currentTileId == tile.id)
+
+        if isSelected then
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, ix - 2, iy - 2, tileDisplaySize + 4, tileDisplaySize + 4, 3)
+            nvgStrokeColor(vg, nvgRGBA(255, 200, 50, 255))
+            nvgStrokeWidth(vg, 2)
+            nvgStroke(vg)
+        end
+
+        if tile.handle and tile.handle ~= -1 then
+            local scaleX = tileDisplaySize / tile.uvW
+            local scaleY = tileDisplaySize / tile.uvH
+            local imgPaint = nvgImagePattern(vg,
+                ix - tile.uvX * scaleX,
+                iy - tile.uvY * scaleY,
+                atlasInfo.width * scaleX,
+                atlasInfo.height * scaleY,
+                0, tile.handle, 1.0)
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, ix, iy, tileDisplaySize, tileDisplaySize, 2)
+            nvgFillPaint(vg, imgPaint)
+            nvgFill(vg)
+        else
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, ix, iy, tileDisplaySize, tileDisplaySize, 2)
+            nvgFillColor(vg, nvgRGBA(tile.color[1], tile.color[2], tile.color[3], 255))
+            nvgFill(vg)
+        end
+
+        nvgFontSize(vg, 9)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
+        nvgText(vg, ix + tileDisplaySize / 2, iy + tileDisplaySize - 2, tostring(tile.id), nil)
+    end
+end
+
+function EditorUI:DrawSimplePalette(vg, state, x, y, w, items)
     local itemH = 50
     local itemMargin = 6
     local startY = y + 34
 
     for i, tile in ipairs(items) do
         local iy = startY + (i - 1) * (itemH + itemMargin)
-        local ix = itemMargin
+        local ix = x + itemMargin
         local iw = w - itemMargin * 2
         local ih = itemH
 
@@ -154,10 +230,12 @@ function EditorUI:DrawPalette(vg, state)
 end
 
 function EditorUI:DrawLayerPanel(vg, layerManager)
-    local w = 100
+    local w = 140
     local x = self.logicalW - w
     local y = self.toolbarHeight + 10
-    local h = layerManager:GetLayerCount() * 28 + 30
+    local itemH = 28
+    local addButtonH = 24
+    local h = layerManager:GetLayerCount() * itemH + 40 + addButtonH
 
     nvgBeginPath(vg)
     nvgRoundedRect(vg, x, y, w, h, 4)
@@ -165,28 +243,54 @@ function EditorUI:DrawLayerPanel(vg, layerManager)
     nvgFill(vg)
 
     nvgFontSize(vg, 11)
-    nvgFontFaceId(vg, -1)
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 180))
-    nvgText(vg, x + w / 2, y + 6, "图层", nil)
+    nvgText(vg, x + w / 2, y + 6, "图层管理", nil)
 
     for i = 1, layerManager:GetLayerCount() do
         local layer = layerManager.layers[i]
-        local ly = y + 24 + (i - 1) * 26
+        local ly = y + 26 + (i - 1) * itemH
         local isCurrent = (i == layerManager.currentLayer)
 
         if isCurrent then
             nvgBeginPath(vg)
-            nvgRoundedRect(vg, x + 4, ly - 2, w - 8, 22, 3)
+            nvgRoundedRect(vg, x + 4, ly - 2, w - 8, itemH - 4, 3)
             nvgFillColor(vg, nvgRGBA(60, 130, 220, 150))
             nvgFill(vg)
         end
 
+        -- 可见性按钮
+        local visColor = layer.visible and nvgRGBA(100, 220, 100, 220) or nvgRGBA(150, 150, 150, 150)
+        nvgBeginPath(vg)
+        nvgCircle(vg, x + 14, ly + itemH / 2 - 2, 5)
+        nvgFillColor(vg, visColor)
+        nvgFill(vg)
+
+        -- 可编辑性按钮
+        local editColor = layer.editable and nvgRGBA(255, 200, 50, 220) or nvgRGBA(150, 150, 150, 150)
+        nvgBeginPath(vg)
+        nvgCircle(vg, x + 28, ly + itemH / 2 - 2, 5)
+        nvgFillColor(vg, editColor)
+        nvgFill(vg)
+
+        -- 图层名称
         nvgFontSize(vg, 10)
         nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
         nvgFillColor(vg, layer.visible and nvgRGBA(255, 255, 255, 220) or nvgRGBA(150, 150, 150, 150))
-        nvgText(vg, x + 10, ly + 9, (layer.visible and "[v] " or "[ ] ") .. layer.name, nil)
+        nvgText(vg, x + 40, ly + itemH / 2 - 2, layer.name, nil)
     end
+
+    -- 添加图层按钮
+    local addY = y + 26 + layerManager:GetLayerCount() * itemH + 4
+    nvgBeginPath(vg)
+    nvgRoundedRect(vg, x + 4, addY, w - 8, addButtonH - 4, 3)
+    nvgFillColor(vg, nvgRGBA(60, 130, 220, 180))
+    nvgFill(vg)
+
+    nvgFontSize(vg, 10)
+    nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+    nvgFillColor(vg, nvgRGBA(255, 255, 255, 220))
+    nvgText(vg, x + w / 2, addY + addButtonH / 2 - 2, "+ 添加图层", nil)
 end
 
 function EditorUI:DrawStatusBar(vg, state, camera)
@@ -202,18 +306,95 @@ function EditorUI:DrawStatusBar(vg, state, camera)
     nvgFillColor(vg, nvgRGBA(80, 85, 100, 200))
     nvgFill(vg)
 
-    local info = string.format("坐标: %d,%d | 世界: %.0f,%.0f | 缩放: %.1fx | 笔刷: %dx%d | 网格: %s",
+    local tileName = "无"
+    if self.tilePalette then
+        local tile = self.tilePalette:GetById(state.currentTileId)
+        if tile then tileName = tile.name end
+    end
+
+    local info = string.format("坐标: %d,%d | 世界: %.0f,%.0f | 缩放: %.1fx | 笔刷: %dx%d | 网格: %s | 当前瓦片: %s",
         state.hoverCol, state.hoverRow,
         state.hoverWorldX, state.hoverWorldY,
         camera.zoom,
         state.brushSize, state.brushSize,
-        state.showGrid and "开" or "关")
+        state.showGrid and "开" or "关",
+        tileName)
 
     nvgFontSize(vg, 11)
     nvgFontFaceId(vg, -1)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
     nvgText(vg, 10, y + self.statusbarHeight / 2, info, nil)
+end
+
+function EditorUI:HandlePaletteClick(x, y, state)
+    if not state.paletteOpen then return false end
+    if not self.tilePalette then return false end
+
+    local px = 0
+    local py = self.toolbarHeight
+    local pw = self.paletteWidth
+    local ph = self.logicalH - self.toolbarHeight - self.statusbarHeight
+
+    if x < px or x > px + pw or y < py or y > py + ph then
+        return false
+    end
+
+    local items = self.tilePalette:GetItems()
+    local isAtlas = self.tilePalette:IsAtlasMode()
+
+    if isAtlas then
+        return self:HandleAtlasPaletteClick(x, y, px, py, pw, ph, items, state)
+    else
+        return self:HandleSimplePaletteClick(x, y, px, py, items, state)
+    end
+end
+
+function EditorUI:HandleAtlasPaletteClick(x, y, px, py, pw, ph, items, state)
+    local tileDisplaySize = 32
+    local padding = 6
+    local cols = math.floor((pw - padding * 2) / (tileDisplaySize + padding))
+    if cols < 1 then cols = 1 end
+
+    local startY = py + 34
+
+    for i, tile in ipairs(items) do
+        local colIndex = (i - 1) % cols
+        local rowIndex = math.floor((i - 1) / cols)
+        local ix = px + padding + colIndex * (tileDisplaySize + padding)
+        local iy = startY + rowIndex * (tileDisplaySize + padding)
+
+        if iy + tileDisplaySize > py + ph then break end
+
+        if x >= ix and x <= ix + tileDisplaySize and y >= iy and y <= iy + tileDisplaySize then
+            state.currentTileId = tile.id
+            print(string.format("[Editor] Selected tile id=%d (%s)", tile.id, tile.name))
+            return true
+        end
+    end
+
+    return true
+end
+
+function EditorUI:HandleSimplePaletteClick(x, y, px, py, items, state)
+    local itemH = 50
+    local itemMargin = 6
+    local startY = py + 34
+
+    for i, tile in ipairs(items) do
+        local iy = startY + (i - 1) * (itemH + itemMargin)
+        local ix = px + itemMargin
+        local iw = self.paletteWidth - itemMargin * 2
+        local ih = itemH
+
+        if x >= ix and x <= ix + iw and y >= iy and y <= iy + ih then
+            state.currentTileId = tile.id
+            print(string.format("[Editor] Selected tile id=%d (%s)", tile.id, tile.name))
+            return true
+        end
+    end
+
+    return true
 end
 
 return EditorUI
