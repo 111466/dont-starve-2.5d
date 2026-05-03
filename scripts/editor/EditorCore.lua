@@ -39,6 +39,7 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, fontId, tileMap, GRID_COLS
     self.tileImageEntries = tileImageEntries or {}
     self.decorations = decorations or {}
     self.collisionMap = CreateGrid(GRID_COLS, GRID_ROWS, 0)
+    self.renderTime = 0
 
     self.camera = require("scripts/editor/EditorCamera"):new()
     self.state = require("scripts/editor/EditorState"):new()
@@ -105,6 +106,7 @@ function EditorCore:Update(dt, input, logicalW, logicalH)
 
     self.logicalW = logicalW
     self.logicalH = logicalH
+    self.renderTime = self.renderTime + dt
 
     self.camera:Update(dt, input)
 end
@@ -203,8 +205,160 @@ function EditorCore:DrawDecorations()
     end)
 
     for _, dec in ipairs(drawables) do
-        DrawDecoration(dec)
+        self:DrawDecoration(dec)
     end
+end
+
+function EditorCore:DrawDecoration(dec)
+    local sx, sy = self.camera:WorldToScreen(dec.x, dec.y, self.logicalW, self.logicalH, self.ISO_Y_SCALE)
+    if sx < -50 or sx > self.logicalW + 50 or sy < -50 or sy > self.logicalH + 50 then
+        return
+    end
+
+    local s = dec.scale
+    local sway = math.sin(self.renderTime * 1.5 + dec.swayPhase) * 2 * s
+
+    if dec.type == 1 then
+        self:DrawTallGrass(sx, sy, s, sway)
+    elseif dec.type == 2 then
+        self:DrawFlower(sx, sy, s, sway)
+    elseif dec.type == 3 then
+        self:DrawSmallRock(sx, sy, s)
+    elseif dec.type == 4 then
+        self:DrawMushroom(sx, sy, s, sway)
+    end
+end
+
+function EditorCore:DrawTallGrass(sx, sy, s, sway)
+    local vg = self.vg
+    local bladeCount = 3
+    for i = 1, bladeCount do
+        local ox = (i - 2) * 5 * s
+        local h = (20 + i * 4) * s
+
+        nvgBeginPath(vg)
+        nvgMoveTo(vg, sx + ox, sy)
+        nvgQuadTo(vg, sx + ox + sway, sy - h * 0.6, sx + ox + sway * 1.5, sy - h)
+        nvgStrokeColor(vg, nvgRGBA(30, 50, 20, 255))
+        nvgStrokeWidth(vg, 3 * s)
+        nvgStroke(vg)
+
+        nvgBeginPath(vg)
+        nvgMoveTo(vg, sx + ox, sy)
+        nvgQuadTo(vg, sx + ox + sway, sy - h * 0.6, sx + ox + sway * 1.5, sy - h)
+        nvgStrokeColor(vg, nvgRGBA(80, 160, 60, 255))
+        nvgStrokeWidth(vg, 1.5 * s)
+        nvgStroke(vg)
+    end
+end
+
+function EditorCore:DrawFlower(sx, sy, s, sway)
+    local vg = self.vg
+    local stemH = 18 * s
+    local petalR = 4 * s
+
+    nvgBeginPath(vg)
+    nvgMoveTo(vg, sx, sy)
+    nvgQuadTo(vg, sx + sway * 0.5, sy - stemH * 0.6, sx + sway, sy - stemH)
+    nvgStrokeColor(vg, nvgRGBA(30, 80, 20, 255))
+    nvgStrokeWidth(vg, 2.5 * s)
+    nvgStroke(vg)
+
+    local fx = sx + sway
+    local fy = sy - stemH
+    local petalColors = {
+        {255, 200, 80},
+        {255, 120, 100},
+        {200, 150, 255},
+    }
+    local ci = math.floor(sx + sy) % 3 + 1
+    local pc = petalColors[ci]
+    local pcR, pcG, pcB = pc[1], pc[2], pc[3]
+
+    for angle = 0, 4 do
+        local a = angle * math.pi * 2 / 5
+        local px = fx + math.cos(a) * petalR
+        local py = fy + math.sin(a) * petalR * 0.7
+
+        nvgBeginPath(vg)
+        nvgCircle(vg, px, py, petalR * 0.6)
+        nvgFillColor(vg, nvgRGBA(pcR, pcG, pcB, 255))
+        nvgFill(vg)
+        nvgStrokeColor(vg, nvgRGBA(40, 40, 40, 200))
+        nvgStrokeWidth(vg, 1.2 * s)
+        nvgStroke(vg)
+    end
+
+    nvgBeginPath(vg)
+    nvgCircle(vg, fx, fy, petalR * 0.4)
+    nvgFillColor(vg, nvgRGBA(255, 230, 100, 255))
+    nvgFill(vg)
+end
+
+function EditorCore:DrawSmallRock(sx, sy, s)
+    local vg = self.vg
+    nvgSave(vg)
+    nvgTranslate(vg, sx, sy)
+    nvgScale(vg, s, s)
+
+    nvgBeginPath(vg)
+    nvgEllipse(vg, 2, 2, 10, 5)
+    nvgFillColor(vg, nvgRGBA(0, 0, 0, 40))
+    nvgFill(vg)
+
+    nvgBeginPath(vg)
+    nvgEllipse(vg, 0, -3, 9, 7)
+    nvgFillColor(vg, nvgRGBA(160, 155, 145, 255))
+    nvgFill(vg)
+    nvgStrokeColor(vg, nvgRGBA(80, 75, 70, 255))
+    nvgStrokeWidth(vg, 2)
+    nvgStroke(vg)
+
+    nvgBeginPath(vg)
+    nvgEllipse(vg, -2, -6, 4, 2.5)
+    nvgFillColor(vg, nvgRGBA(200, 195, 185, 180))
+    nvgFill(vg)
+
+    nvgRestore(vg)
+end
+
+function EditorCore:DrawMushroom(sx, sy, s, sway)
+    local vg = self.vg
+    nvgSave(vg)
+    nvgTranslate(vg, sx, sy)
+    nvgScale(vg, s, s)
+
+    local stemH = 10
+    local capR = 8
+
+    nvgBeginPath(vg)
+    nvgRoundedRect(vg, -3 + sway * 0.3, -stemH, 6, stemH, 2)
+    nvgFillColor(vg, nvgRGBA(230, 220, 200, 255))
+    nvgFill(vg)
+    nvgStrokeColor(vg, nvgRGBA(60, 50, 40, 255))
+    nvgStrokeWidth(vg, 2)
+    nvgStroke(vg)
+
+    nvgBeginPath(vg)
+    nvgArc(vg, sway * 0.5, -stemH, capR, math.pi, 0, 1)
+    nvgClosePath(vg)
+    nvgFillColor(vg, nvgRGBA(200, 50, 50, 255))
+    nvgFill(vg)
+    nvgStrokeColor(vg, nvgRGBA(60, 20, 20, 255))
+    nvgStrokeWidth(vg, 2)
+    nvgStroke(vg)
+
+    nvgBeginPath(vg)
+    nvgCircle(vg, -3 + sway * 0.5, -stemH - 3, 2)
+    nvgFillColor(vg, nvgRGBA(255, 255, 255, 220))
+    nvgFill(vg)
+
+    nvgBeginPath(vg)
+    nvgCircle(vg, 3 + sway * 0.5, -stemH - 1, 1.5)
+    nvgFillColor(vg, nvgRGBA(255, 255, 255, 220))
+    nvgFill(vg)
+
+    nvgRestore(vg)
 end
 
 function EditorCore:DrawCollisionLayer()
