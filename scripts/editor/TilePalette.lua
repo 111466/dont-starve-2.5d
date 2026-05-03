@@ -1,117 +1,203 @@
 local TilePalette = {
+    sources = {},
+    sourceOrder = {},
     items = {},
-    spriteMap = {},
-    tileSize = 16,
-    atlasImage = nil,
-    atlasHandle = -1,
-    atlasWidth = 0,
-    atlasHeight = 0,
-    colsInAtlas = 0,
-    rowsInAtlas = 0,
+    itemsBySource = {},
+    itemById = {},
 }
 
-function TilePalette:InitFromAtlas(vg, imagePath, tileSize)
+local function MakeTileId(sourceId, localId)
+    return sourceId * 10000 + localId
+end
+
+function TilePalette:Reset()
+    self.sources = {}
+    self.sourceOrder = {}
     self.items = {}
-    self.spriteMap = {}
-    self.tileSize = tileSize or 16
+    self.itemsBySource = {}
+    self.itemById = {}
+end
 
-    if imagePath and imagePath ~= "" then
-        self.atlasHandle = nvgCreateImage(vg, imagePath, 0)
-        if self.atlasHandle ~= -1 then
-            self.atlasImage = imagePath
-            local w, h = nvgImageSize(vg, self.atlasHandle)
-            self.atlasWidth = w
-            self.atlasHeight = h
-            self.colsInAtlas = math.floor(w / self.tileSize)
-            self.rowsInAtlas = math.floor(h / self.tileSize)
+function TilePalette:InitFromImageEntries(imageEntries)
+    self:Reset()
 
-            local id = 0
-            for row = 0, self.rowsInAtlas - 1 do
-                for col = 0, self.colsInAtlas - 1 do
-                    table.insert(self.items, {
-                        id = id,
-                        name = string.format("瓦片%d", id),
-                        color = {128, 128, 128},
-                        sprite = imagePath,
-                        handle = self.atlasHandle,
-                        atlasCol = col,
-                        atlasRow = row,
-                        uvX = col * self.tileSize,
-                        uvY = row * self.tileSize,
-                        uvW = self.tileSize,
-                        uvH = self.tileSize,
-                    })
-                    id = id + 1
-                end
-            end
-
-            print(string.format("[Editor] TilePalette initialized from atlas: %s, tileSize=%d, %dx%d=%d tiles",
-                imagePath, self.tileSize, self.colsInAtlas, self.rowsInAtlas, #self.items))
-        else
-            print("[Editor] WARNING: Failed to load atlas image: " .. imagePath)
+    for index, entry in ipairs(imageEntries or {}) do
+        if entry.handle and entry.handle ~= -1 then
+            local source = {
+                id = index,
+                key = entry.key,
+                name = entry.name or ("素材" .. tostring(index)),
+                path = entry.path or "",
+                handle = entry.handle,
+                width = entry.width or 0,
+                height = entry.height or 0,
+                tileSize = entry.tileSize,
+                tileId = entry.tileId,
+                color = entry.color or { 128, 128, 128 },
+            }
+            self.sources[source.id] = source
+            table.insert(self.sourceOrder, source.id)
         end
     end
+
+    self:RebuildItems()
 
     if #self.items == 0 then
         self:InitFallback()
     end
 end
 
-function TilePalette:InitFromSprites(tileSprites)
+function TilePalette:RebuildItems()
     self.items = {}
-    self.spriteMap = {}
-    self.atlasHandle = -1
-    self.atlasImage = nil
+    self.itemsBySource = {}
+    self.itemById = {}
 
-    local tileConfigs = {
-        { key = "grass1", name = "草地1", color = {85, 150, 65} },
-        { key = "grass2", name = "草地2", color = {75, 140, 60} },
-        { key = "dirt",   name = "泥土",  color = {150, 115, 75} },
-        { key = "stone",  name = "石头",  color = {160, 155, 145} },
-    }
+    for _, sourceId in ipairs(self.sourceOrder) do
+        local source = self.sources[sourceId]
+        local sourceItems = {}
+        self.itemsBySource[sourceId] = sourceItems
 
-    for i, config in ipairs(tileConfigs) do
-        local handle = tileSprites[config.key]
-        if handle and handle ~= -1 then
-            table.insert(self.items, {
-                id = i - 1,
-                name = config.name,
-                color = config.color,
-                sprite = config.key,
-                handle = handle,
+        if source and source.tileSize and source.tileSize > 0 then
+            local cols = math.floor(source.width / source.tileSize)
+            local rows = math.floor(source.height / source.tileSize)
+            if cols > 0 and rows > 0 then
+                source.isAtlas = true
+                source.cols = cols
+                source.rows = rows
+
+                local localId = 0
+                for row = 0, rows - 1 do
+                    for col = 0, cols - 1 do
+                        local item = {
+                            id = MakeTileId(sourceId, localId),
+                            sourceId = sourceId,
+                            name = string.format("%s_%d", source.name, localId),
+                            color = source.color,
+                            sprite = source.path,
+                            handle = source.handle,
+                            atlasCol = col,
+                            atlasRow = row,
+                            uvX = col * source.tileSize,
+                            uvY = row * source.tileSize,
+                            uvW = source.tileSize,
+                            uvH = source.tileSize,
+                            atlasWidth = source.width,
+                            atlasHeight = source.height,
+                            tileSize = source.tileSize,
+                            isAtlas = true,
+                        }
+                        table.insert(self.items, item)
+                        table.insert(sourceItems, item)
+                        self.itemById[item.id] = item
+                        localId = localId + 1
+                    end
+                end
+            else
+                source.isAtlas = false
+                source.cols = 1
+                source.rows = 1
+            end
+        else
+            source.isAtlas = false
+            source.cols = 1
+            source.rows = 1
+        end
+
+        if not source.isAtlas then
+            local item = {
+                id = source.tileId ~= nil and source.tileId or MakeTileId(sourceId, 0),
+                sourceId = sourceId,
+                name = source.name,
+                color = source.color,
+                sprite = source.path,
+                handle = source.handle,
                 atlasCol = 0,
                 atlasRow = 0,
                 uvX = 0,
                 uvY = 0,
-                uvW = 0,
-                uvH = 0,
-            })
-            self.spriteMap[config.key] = handle
+                uvW = source.width,
+                uvH = source.height,
+                atlasWidth = source.width,
+                atlasHeight = source.height,
+                tileSize = 0,
+                isAtlas = false,
+            }
+            table.insert(self.items, item)
+            table.insert(sourceItems, item)
+            self.itemById[item.id] = item
         end
     end
-
-    if #self.items == 0 then
-        self:InitFallback()
-    end
-
-    print("[Editor] TilePalette initialized with " .. #self.items .. " tiles")
 end
 
 function TilePalette:InitFallback()
-    self.items = {
-        { id = 0, name = "草地", color = {85, 150, 65}, sprite = "", handle = -1, atlasCol = 0, atlasRow = 0, uvX = 0, uvY = 0, uvW = 0, uvH = 0 },
-        { id = 1, name = "泥土", color = {150, 115, 75}, sprite = "", handle = -1, atlasCol = 0, atlasRow = 0, uvX = 0, uvY = 0, uvW = 0, uvH = 0 },
-        { id = 2, name = "石头", color = {160, 155, 145}, sprite = "", handle = -1, atlasCol = 0, atlasRow = 0, uvX = 0, uvY = 0, uvW = 0, uvH = 0 },
+    self:Reset()
+    local source = {
+        id = 1,
+        key = "fallback",
+        name = "默认瓦片",
+        path = "",
+        handle = -1,
+        width = 0,
+        height = 0,
+        color = { 128, 128, 128 },
+        isAtlas = false,
+        cols = 1,
+        rows = 1,
     }
+    self.sources[source.id] = source
+    self.sourceOrder = { source.id }
+
+    local fallback = {
+        { id = 0, name = "草地", color = {85, 150, 65}, sprite = "", handle = -1, atlasCol = 0, atlasRow = 0, uvX = 0, uvY = 0, uvW = 0, uvH = 0, isAtlas = false, sourceId = source.id },
+        { id = 1, name = "泥土", color = {150, 115, 75}, sprite = "", handle = -1, atlasCol = 0, atlasRow = 0, uvX = 0, uvY = 0, uvW = 0, uvH = 0, isAtlas = false, sourceId = source.id },
+        { id = 2, name = "石头", color = {160, 155, 145}, sprite = "", handle = -1, atlasCol = 0, atlasRow = 0, uvX = 0, uvY = 0, uvW = 0, uvH = 0, isAtlas = false, sourceId = source.id },
+    }
+
+    self.items = fallback
+    self.itemsBySource[source.id] = fallback
+    for _, item in ipairs(fallback) do
+        self.itemById[item.id] = item
+    end
+end
+
+function TilePalette:SetSourceTileSize(sourceId, tileSize)
+    local source = self.sources[sourceId]
+    if not source then
+        return false
+    end
+
+    if tileSize and tileSize > 0 then
+        source.tileSize = tileSize
+    else
+        source.tileSize = nil
+    end
+
+    self:RebuildItems()
+    return true
+end
+
+function TilePalette:GetSources()
+    local result = {}
+    for _, sourceId in ipairs(self.sourceOrder) do
+        table.insert(result, self.sources[sourceId])
+    end
+    return result
+end
+
+function TilePalette:GetSourceById(sourceId)
+    return self.sources[sourceId]
+end
+
+function TilePalette:GetItems()
+    return self.items
+end
+
+function TilePalette:GetItemsForSource(sourceId)
+    return self.itemsBySource[sourceId] or {}
 end
 
 function TilePalette:GetById(id)
-    for _, item in ipairs(self.items) do
-        if item.id == id then
-            return item
-        end
-    end
-    return self.items[1]
+    return self.itemById[id] or self.items[1]
 end
 
 function TilePalette:GetNextId(currentId)
@@ -121,7 +207,7 @@ function TilePalette:GetNextId(currentId)
             return self.items[nextIndex].id
         end
     end
-    return self.items[1].id
+    return self.items[1] and self.items[1].id or 0
 end
 
 function TilePalette:GetPrevId(currentId)
@@ -131,30 +217,50 @@ function TilePalette:GetPrevId(currentId)
             return self.items[prevIndex].id
         end
     end
-    return self.items[1].id
+    return self.items[1] and self.items[1].id or 0
 end
 
 function TilePalette:GetCount()
     return #self.items
 end
 
-function TilePalette:GetItems()
-    return self.items
+function TilePalette:IsAtlasMode()
+    for _, sourceId in ipairs(self.sourceOrder) do
+        local source = self.sources[sourceId]
+        if source and source.isAtlas then
+            return true
+        end
+    end
+    return false
 end
 
-function TilePalette:IsAtlasMode()
-    return self.atlasHandle ~= -1 and self.atlasHandle ~= nil
+function TilePalette:IsSourceAtlas(sourceId)
+    local source = self.sources[sourceId]
+    return source and source.isAtlas or false
+end
+
+function TilePalette:GetSourceAtlasInfo(sourceId)
+    local source = self.sources[sourceId]
+    if not source then
+        return nil
+    end
+
+    return {
+        handle = source.handle,
+        width = source.width,
+        height = source.height,
+        tileSize = source.tileSize or 0,
+        cols = source.cols or 1,
+        rows = source.rows or 1,
+    }
 end
 
 function TilePalette:GetAtlasInfo()
-    return {
-        handle = self.atlasHandle,
-        width = self.atlasWidth,
-        height = self.atlasHeight,
-        tileSize = self.tileSize,
-        cols = self.colsInAtlas,
-        rows = self.rowsInAtlas,
-    }
+    local source = self.sources[self.sourceOrder[1]]
+    if not source then
+        return nil
+    end
+    return self:GetSourceAtlasInfo(source.id)
 end
 
 return TilePalette

@@ -9,7 +9,11 @@ local EditorCore = {
     tools = {},
 }
 
-function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, atlasPath, atlasTileSize)
+local function IsMiddleMouseButton(button)
+    return button == 3 or button == 4
+end
+
+function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
     self.vg = vg
     self.logicalW = logicalW
     self.logicalH = logicalH
@@ -20,13 +24,12 @@ function EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_R
     self.TILE_SIZE = TILE_SIZE
     self.ISO_Y_SCALE = ISO_Y_SCALE
     self.tileSprites = tileSprites
-    self.atlasPath = atlasPath
-    self.atlasTileSize = atlasTileSize
+    self.tileImageEntries = tileImageEntries or {}
 
     self.camera = require("scripts/editor/EditorCamera"):new()
     self.state = require("scripts/editor/EditorState"):new()
     self.ui = require("scripts/editor/EditorUI"):new()
-    self.ui:Init(vg, tileSprites, atlasPath, atlasTileSize)
+    self.ui:Init(vg, self.tileImageEntries)
     self.undoRedo = require("scripts/editor/UndoRedo"):new()
     self.serializer = require("scripts/editor/MapSerializer")
     self.layerManager = require("scripts/editor/LayerManager"):new()
@@ -110,9 +113,6 @@ function EditorCore:DrawMap()
     local TILE_IMG_W = self.TILE_SIZE
     local TILE_IMG_H = self.TILE_SIZE * self.ISO_Y_SCALE
 
-    local isAtlasMode = self.ui.tilePalette:IsAtlasMode()
-    local atlasInfo = isAtlasMode and self.ui.tilePalette:GetAtlasInfo() or nil
-
     for row = startRow, endRow do
         for col = startCol, endCol do
             local tileType = self.tileMap[row] and self.tileMap[row][col] or 0
@@ -124,26 +124,20 @@ function EditorCore:DrawMap()
             local h = TILE_IMG_H * cam.zoom
             local drawX = sx - w / 2
             local drawY = sy - h / 2
-
-            if isAtlasMode and atlasInfo then
-                self:DrawAtlasTile(vg, tileType, drawX, drawY, w, h, atlasInfo)
-            else
-                self:DrawSimpleTile(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
-            end
+            self:DrawTileByPalette(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
         end
     end
 end
 
-function EditorCore:DrawAtlasTile(vg, tileType, drawX, drawY, w, h, atlasInfo)
-    local tile = self.ui.tilePalette:GetById(tileType)
+function EditorCore:DrawAtlasTile(vg, tile, drawX, drawY, w, h)
     if tile and tile.handle ~= -1 then
         local scaleX = w / tile.uvW
         local scaleY = h / tile.uvH
         local imgPaint = nvgImagePattern(vg,
             drawX - tile.uvX * scaleX,
             drawY - tile.uvY * scaleY,
-            atlasInfo.width * scaleX,
-            atlasInfo.height * scaleY,
+            tile.atlasWidth * scaleX,
+            tile.atlasHeight * scaleY,
             0, tile.handle, 1.0)
         nvgBeginPath(vg)
         nvgRect(vg, drawX, drawY, w, h)
@@ -163,21 +157,10 @@ function EditorCore:DrawAtlasTile(vg, tileType, drawX, drawY, w, h, atlasInfo)
     end
 end
 
-function EditorCore:DrawSimpleTile(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
-    local spriteHandle = -1
-    if tileType == 0 then
-        if (col * 7 + row * 13) % 2 == 0 then
-            spriteHandle = self.tileSprites.grass1
-        else
-            spriteHandle = self.tileSprites.grass2
-        end
-    elseif tileType == 1 then
-        spriteHandle = self.tileSprites.dirt
-    else
-        spriteHandle = self.tileSprites.stone
-    end
+function EditorCore:DrawSimpleTile(vg, tile, tileType, sx, sy, w, h, drawX, drawY)
+    local spriteHandle = tile and tile.handle or -1
 
-    if spriteHandle ~= -1 then
+    if spriteHandle and spriteHandle ~= -1 then
         local imgPaint = nvgImagePattern(vg, drawX, drawY, w, h, 0, spriteHandle, 1.0)
         nvgBeginPath(vg)
         nvgRect(vg, drawX, drawY, w, h)
@@ -202,6 +185,15 @@ function EditorCore:DrawSimpleTile(vg, tileType, col, row, sx, sy, w, h, drawX, 
         nvgClosePath(vg)
         nvgFillColor(vg, nvgRGBA(r, g, b, 255))
         nvgFill(vg)
+    end
+end
+
+function EditorCore:DrawTileByPalette(vg, tileType, col, row, sx, sy, w, h, drawX, drawY)
+    local tile = self.ui.tilePalette and self.ui.tilePalette:GetById(tileType) or nil
+    if tile and tile.isAtlas then
+        self:DrawAtlasTile(vg, tile, drawX, drawY, w, h)
+    else
+        self:DrawSimpleTile(vg, tile, tileType, sx, sy, w, h, drawX, drawY)
     end
 end
 
@@ -363,7 +355,7 @@ end
 function EditorCore:HandleMousePress(x, y, button)
     if not self.enabled then return false end
 
-    if button == 3 then
+    if IsMiddleMouseButton(button) then
         self.camera:StartPan(x, y)
         return true
     end
@@ -375,40 +367,7 @@ function EditorCore:HandleMousePress(x, y, button)
         return true
     end
 
-    -- 检查是否点击了图层面板
-    local layerPanelX = self.logicalW - 140
-    local layerPanelY = self.ui.toolbarHeight + 10
-    local itemH = 28
-    local addButtonH = 24
-    local layerPanelH = self.layerManager:GetLayerCount() * itemH + 40 + addButtonH
-
-    if x >= layerPanelX and x <= self.logicalW and y >= layerPanelY and y <= layerPanelY + layerPanelH then
-        -- 检查是否点击了添加图层按钮
-        local addY = layerPanelY + 26 + self.layerManager:GetLayerCount() * itemH + 4
-        if y >= addY and y <= addY + addButtonH - 4 then
-            self.layerManager:AddLayer("新图层")
-            return true
-        end
-
-        -- 检查是否点击了图层项
-        for i = 1, self.layerManager:GetLayerCount() do
-            local ly = layerPanelY + 26 + (i - 1) * itemH
-            if y >= ly and y <= ly + itemH then
-                -- 检查可见性按钮 (左侧圆点)
-                if x >= layerPanelX + 8 and x <= layerPanelX + 20 then
-                    self.layerManager:ToggleVisibility(i)
-                    return true
-                -- 检查可编辑性按钮
-                elseif x >= layerPanelX + 22 and x <= layerPanelX + 34 then
-                    self.layerManager:ToggleEditable(i)
-                    return true
-                -- 点击图层名称切换当前图层
-                else
-                    self.layerManager:SetCurrentLayer(i)
-                    return true
-                end
-            end
-        end
+    if self.ui:HandleLayerPanelClick(x, y, self.layerManager) then
         return true
     end
 
@@ -454,7 +413,7 @@ end
 function EditorCore:HandleMouseRelease(x, y, button)
     if not self.enabled then return false end
 
-    if button == 3 then
+    if IsMiddleMouseButton(button) then
         self.camera:EndPan()
         return true
     end

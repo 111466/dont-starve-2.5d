@@ -38,6 +38,15 @@ local tileSprites = {
     dirt   = -1,
     stone  = -1,
 }
+local tileImageEntries = {}
+
+local IMAGE_EXTENSIONS = {
+    png = true,
+    jpg = true,
+    jpeg = true,
+    gif = true,
+    webp = true,
+}
 -- 贴图实际像素尺寸 (129x72)，按菱形瓦片大小缩放绘制
 local TILE_IMG_W = 0   -- 绘制宽度，在 Start 中根据 TILE_SIZE 计算
 local TILE_IMG_H = 0   -- 绘制高度
@@ -138,12 +147,7 @@ function Start()
     camY = player.worldY
 
     -- 初始化编辑器
-    -- 如果要使用图集模式，取消下面一行的注释并指定图集路径和瓦片尺寸
-    -- local atlasPath = "image/tile_atlas.png"
-    -- local atlasTileSize = 16
-    local atlasPath = nil
-    local atlasTileSize = nil
-    EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, atlasPath, atlasTileSize)
+    EditorCore:Init(vg, logicalW, logicalH, dpr, tileMap, GRID_COLS, GRID_ROWS, TILE_SIZE, ISO_Y_SCALE, tileSprites, tileImageEntries)
 
     -- 鼠标模式
     SampleInitMouseMode(MM_FREE)
@@ -205,20 +209,112 @@ end
 -- ============================================================================
 
 function LoadTileSprites()
-    local tileFiles = {
-        { key = "grass1", path = "image/tile_grass1_20260502235946.png" },
-        { key = "grass2", path = "image/tile_grass2_20260502235944.png" },
-        { key = "dirt",   path = "image/tile_dirt_20260502235945.png" },
-        { key = "stone",  path = "image/tile_stone_20260503000116.png" },
-    }
-    for _, item in ipairs(tileFiles) do
-        local handle = nvgCreateImage(vg, item.path, 0)
-        if handle == -1 then
-            print("WARNING: Failed to load tile sprite: " .. item.path)
-        else
-            print("Loaded tile sprite [" .. item.key .. "], handle =", handle)
+    tileImageEntries = {}
+    tileSprites.grass1 = -1
+    tileSprites.grass2 = -1
+    tileSprites.dirt = -1
+    tileSprites.stone = -1
+
+    local function RunCapture(command)
+        local pipe = io.popen(command)
+        if not pipe then
+            return nil
         end
-        tileSprites[item.key] = handle
+        local output = pipe:read("*a")
+        pipe:close()
+        return output
+    end
+
+    local function Trim(value)
+        return (value:gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+
+    local function GuessKeyFromFilename(filename)
+        local lower = string.lower(filename)
+        if string.find(lower, "grass1", 1, true) then
+            return "grass1", 0, {85, 150, 65}, "草地1"
+        elseif string.find(lower, "dirt", 1, true) then
+            return "dirt", 1, {150, 115, 75}, "泥土"
+        elseif string.find(lower, "stone", 1, true) then
+            return "stone", 2, {160, 155, 145}, "石头"
+        elseif string.find(lower, "grass2", 1, true) then
+            return "grass2", 3, {75, 140, 60}, "草地2"
+        end
+        return nil, nil, {128, 128, 128}, filename
+    end
+
+    local function MakeDisplayName(filename)
+        local name = filename:gsub("%.[^%.]+$", "")
+        name = name:gsub("_%d+$", "")
+        name = name:gsub("_", " ")
+        name = name:gsub("-", " ")
+        return name
+    end
+
+    local function ScanImageFilenames()
+        local commands = {
+            "powershell -NoProfile -Command \"Get-ChildItem -Path 'assets/image' -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\\.(png|jpg|jpeg|gif|webp)$' } | Sort-Object Name | Select-Object -ExpandProperty Name\"",
+            "powershell -NoProfile -Command \"Get-ChildItem -Path 'image' -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\\.(png|jpg|jpeg|gif|webp)$' } | Sort-Object Name | Select-Object -ExpandProperty Name\"",
+        }
+
+        for _, command in ipairs(commands) do
+            local output = RunCapture(command)
+            if output and output ~= "" then
+                local filenames = {}
+                for line in output:gmatch("[^\r\n]+") do
+                    local filename = Trim(line)
+                    if filename ~= "" then
+                        local ext = string.lower(filename:match("%.([^%.]+)$") or "")
+                        if IMAGE_EXTENSIONS[ext] then
+                            table.insert(filenames, filename)
+                        end
+                    end
+                end
+                if #filenames > 0 then
+                    return filenames
+                end
+            end
+        end
+
+        return {}
+    end
+
+    local filenames = ScanImageFilenames()
+    for _, filename in ipairs(filenames) do
+        local resourcePath = "image/" .. filename
+        local handle = nvgCreateImage(vg, resourcePath, 0)
+
+        if handle == -1 then
+            print("WARNING: Failed to load tile sprite: " .. resourcePath)
+        else
+            local width, height = nvgImageSize(vg, handle)
+            local key, tileId, color, guessedName = GuessKeyFromFilename(filename)
+            local displayName = guessedName
+            if not key then
+                displayName = MakeDisplayName(filename)
+            end
+
+            table.insert(tileImageEntries, {
+                key = key,
+                name = displayName,
+                path = resourcePath,
+                handle = handle,
+                width = width,
+                height = height,
+                tileId = tileId,
+                color = color,
+            })
+
+            if key and tileSprites[key] == -1 then
+                tileSprites[key] = handle
+            end
+
+            print("Loaded editor image [" .. filename .. "], handle =", handle)
+        end
+    end
+
+    if #tileImageEntries == 0 then
+        print("WARNING: No images found in assets/image or image for editor palette")
     end
 end
 
@@ -916,6 +1012,13 @@ function DrawHUD()
     nvgText(vg, logicalW / 2, logicalH - 12, hintText, nil)
 end
 
+local function ToLogicalMousePosition(x, y)
+    if dpr == nil or dpr == 0 then
+        return x, y
+    end
+    return x / dpr, y / dpr
+end
+
 -- ============================================================================
 -- 输入事件处理
 -- ============================================================================
@@ -924,6 +1027,7 @@ function HandleMouseButtonDown(eventType, eventData)
     local button = eventData["Button"]:GetInt()
     local x = eventData["X"]:GetInt()
     local y = eventData["Y"]:GetInt()
+    x, y = ToLogicalMousePosition(x, y)
 
     if EditorCore.enabled then
         EditorCore:UpdateMouse(x, y)
@@ -935,6 +1039,7 @@ function HandleMouseMove(eventType, eventData)
     local x = eventData["X"]:GetInt()
     local y = eventData["Y"]:GetInt()
     local buttons = eventData["Buttons"]:GetInt()
+    x, y = ToLogicalMousePosition(x, y)
 
     if EditorCore.enabled then
         EditorCore:UpdateMouse(x, y)
@@ -948,6 +1053,7 @@ function HandleMouseButtonUp(eventType, eventData)
     local button = eventData["Button"]:GetInt()
     local x = eventData["X"]:GetInt()
     local y = eventData["Y"]:GetInt()
+    x, y = ToLogicalMousePosition(x, y)
 
     if EditorCore.enabled then
         EditorCore:HandleMouseRelease(x, y, button)
